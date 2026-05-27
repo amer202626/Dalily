@@ -4,7 +4,29 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Sleek deep blue base -->
     <path
         android:fillColor="#1E88E5"
         android:pathData="M0,0h108v108h-108z" />
+        
+    <!-- Concentric accent circle 1 (subtle white opacity) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="1.5"
+        android:pathData="M54,14 A40,40 0 1,1 53.9,14 Z" />
+
+    <!-- Concentric accent circle 2 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="1"
+        android:pathData="M54,24 A30,30 0 1,1 53.9,24 Z" />
+
+    <!-- Sleek corner ray design accents -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="1"
+        android:pathData="M54,0 L54,12 M54,96 L54,108 M0,54 L12,54 M96,54 L108,54" />
 </vector>

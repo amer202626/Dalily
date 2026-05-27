@@ -79,13 +79,16 @@ object SupabaseClient {
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor { chain ->
-            val request = chain.request().newBuilder()
+            val originalRequest = chain.request()
+            val requestBuilder = originalRequest.newBuilder()
                 .header("apikey", API_KEY)
                 .header("Authorization", "Bearer $API_KEY")
                 .header("Content-Type", "application/json")
-                .header("Prefer", "return=minimal")
-                .build()
-            chain.proceed(request)
+            
+            if (originalRequest.method != "GET") {
+                requestBuilder.header("Prefer", "return=minimal")
+            }
+            chain.proceed(requestBuilder.build())
         }
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
