@@ -16,7 +16,6 @@ class SettingsManager(context: Context) {
         private const val KEY_ICON_LETTER_EN = "icon_letter_en"
         private const val KEY_FOOTER_TEXT = "footer_text"
         private const val KEY_DEFAULT_LANGUAGE = "default_language"
-        private const val KEY_ADMINS = "admins"
         private const val KEY_CURRENT_USER = "current_user"
     }
 
@@ -56,36 +55,7 @@ class SettingsManager(context: Context) {
         get() = prefs.getString(KEY_DEFAULT_LANGUAGE, "ar") ?: "ar"
         set(value) = prefs.edit().putString(KEY_DEFAULT_LANGUAGE, value).apply()
 
-    var admins: Set<String>
-        get() = prefs.getStringSet(KEY_ADMINS, setOf("maher", "admin")) ?: setOf("maher", "admin")
-        set(value) = prefs.edit().putStringSet(KEY_ADMINS, value).apply()
-
     var currentUser: String?
         get() = prefs.getString(KEY_CURRENT_USER, null)
         set(value) = prefs.edit().putString(KEY_CURRENT_USER, value).apply()
-        
-    fun addAdmin(username: String) {
-        val currentAdmins = admins.toMutableSet()
-        currentAdmins.add(username)
-        admins = currentAdmins
-    }
-
-    fun removeAdmin(username: String) {
-        val currentAdmins = admins.toMutableSet()
-        currentAdmins.remove(username)
-        admins = currentAdmins
-        prefs.edit().remove("admin_pwd_$username").apply()
-    }
-
-    fun getAdminPassword(username: String): String {
-        return if (username == "admin") {
-            prefs.getString("admin_pwd_admin", "maher736462") ?: "maher736462"
-        } else {
-            prefs.getString("admin_pwd_$username", "123456") ?: "123456"
-        }
-    }
-
-    fun setAdminPassword(username: String, password: String) {
-        prefs.edit().putString("admin_pwd_$username", password).apply()
-    }
 }

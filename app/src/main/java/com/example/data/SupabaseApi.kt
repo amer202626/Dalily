@@ -50,6 +50,32 @@ interface SupabaseService {
     suspend fun deleteServiceProvider(
         @Query("id") idFilter: String
     ): Response<Unit>
+
+    @GET("rest/v1/admins")
+    suspend fun getAdmins(
+        @Query("select") select: String = "*"
+    ): List<Admin>
+
+    @POST("rest/v1/admins")
+    suspend fun createAdmin(
+        @Body admin: Admin
+    ): Response<Unit>
+
+    @PATCH("rest/v1/admins")
+    suspend fun updateAdmin(
+        @Query("username") usernameFilter: String,
+        @Body updates: Map<String, @JvmSuppressWildcards Any>
+    ): Response<Unit>
+
+    @DELETE("rest/v1/admins")
+    suspend fun deleteAdmin(
+        @Query("username") usernameFilter: String
+    ): Response<Unit>
+
+    @POST("rest/v1/login_attempts")
+    suspend fun logLoginAttempt(
+        @Body attempt: LoginAttempt
+    ): Response<Unit>
 }
 
 object SupabaseClient {

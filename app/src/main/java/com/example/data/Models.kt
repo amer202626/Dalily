@@ -59,3 +59,37 @@ data class ServiceProvider(
     @Json(name = "image_url")
     val imageUrl: String? = null
 )
+
+@JsonClass(generateAdapter = true)
+data class Admin(
+    @Json(name = "id")
+    val id: String,
+    
+    @Json(name = "username")
+    val username: String,
+    
+    @Json(name = "password_hash")
+    val passwordHash: String,
+    
+    @Json(name = "role")
+    val role: String,
+    
+    @Json(name = "is_active")
+    val isActive: Boolean = true
+)
+
+@JsonClass(generateAdapter = true)
+data class LoginAttempt(
+    @Json(name = "username")
+    val username: String,
+    
+    @Json(name = "success")
+    val success: Boolean,
+    
+    @Json(name = "timestamp")
+    val timestamp: String,
+    
+    @Json(name = "device_id")
+    val deviceId: String
+)
+

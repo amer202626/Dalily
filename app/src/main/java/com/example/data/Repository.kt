@@ -179,4 +179,60 @@ class Repository(
             Log.e(TAG, "Network error deleting provider from Supabase: ${e.message}")
         }
     }
+
+    suspend fun getAdmins(): List<Admin> {
+        return try {
+            supabase.getAdmins()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get admins from Supabase: ${e.message}")
+            emptyList()
+        }
+    }
+
+    suspend fun createAdmin(admin: Admin) {
+        try {
+            val response = supabase.createAdmin(admin)
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Failed response creating admin in Supabase: ${response.code()}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Network error creating admin in Supabase: ${e.message}")
+        }
+    }
+
+    suspend fun updateAdminPassword(username: String, newPasswordHash: String) {
+        try {
+            val updates = mapOf<String, Any>(
+                "password_hash" to newPasswordHash
+            )
+            val response = supabase.updateAdmin("eq.$username", updates)
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Failed response updating admin password in Supabase: ${response.code()}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Network error updating admin password in Supabase: ${e.message}")
+        }
+    }
+
+    suspend fun deleteAdmin(username: String) {
+        try {
+            val response = supabase.deleteAdmin("eq.$username")
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Failed response deleting admin from Supabase: ${response.code()}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Network error deleting admin from Supabase: ${e.message}")
+        }
+    }
+
+    suspend fun logLoginAttempt(attempt: LoginAttempt) {
+        try {
+            val response = supabase.logLoginAttempt(attempt)
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Failed response logging login attempt in Supabase: ${response.code()}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Network error logging login attempt in Supabase: ${e.message}")
+        }
+    }
 }

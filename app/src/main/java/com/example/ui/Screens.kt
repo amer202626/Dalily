@@ -779,11 +779,13 @@ fun BackdoorDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (viewModel.verifyBackdoorPassword(inputPassword)) {
-                        Toast.makeText(context, if (isArabic) "تم الدخول بنجاح!" else "Owner authenticated!", Toast.LENGTH_SHORT).show()
-                        onAuthenticated()
-                    } else {
-                        Toast.makeText(context, if (isArabic) "كلمة المرور خاطئة" else "Incorrect password", Toast.LENGTH_SHORT).show()
+                    viewModel.verifyBackdoorPassword(inputPassword) { success ->
+                        if (success) {
+                            Toast.makeText(context, if (isArabic) "تم الدخول بنجاح!" else "Owner authenticated!", Toast.LENGTH_SHORT).show()
+                            onAuthenticated()
+                        } else {
+                            Toast.makeText(context, if (isArabic) "كلمة المرور خاطئة" else "Incorrect password", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))),
@@ -923,14 +925,15 @@ fun ProfileOrLoginDialog(
 
                     Button(
                         onClick = {
-                            val loginError = viewModel.loginUser(username, password)
-                            if (loginError == null) {
-                                Toast.makeText(context, if (isArabic) "تم تسجيل الدخول بنجاح!" else "Logged in successfully!", Toast.LENGTH_SHORT).show()
-                                onDismiss()
-                            } else if (loginError == "WrongPassword") {
-                                Toast.makeText(context, if (isArabic) "كلمة المرور خاطئة!" else "Incorrect Password!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, loginError, Toast.LENGTH_SHORT).show()
+                            viewModel.loginUser(username, password) { loginError ->
+                                if (loginError == null) {
+                                    Toast.makeText(context, if (isArabic) "تم تسجيل الدخول بنجاح!" else "Logged in successfully!", Toast.LENGTH_SHORT).show()
+                                    onDismiss()
+                                } else if (loginError == "WrongPassword") {
+                                    Toast.makeText(context, if (isArabic) "كلمة المرور خاطئة!" else "Incorrect Password!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, loginError, Toast.LENGTH_SHORT).show()
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))),

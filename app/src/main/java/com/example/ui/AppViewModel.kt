@@ -48,7 +48,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var defaultLanguage by mutableStateOf(settingsManager.defaultLanguage)
         private set
 
-    var adminsList by mutableStateOf(settingsManager.admins)
+    var remoteAdmins by mutableStateOf<List<Admin>>(emptyList())
+        private set
+
+    var adminsList by mutableStateOf<Set<String>>(emptySet())
         private set
 
     var loggedInUser by mutableStateOf(settingsManager.currentUser)
@@ -77,6 +80,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // Trigger background initial internet sync
         viewModelScope.launch {
             repository.syncWithSupabase()
+            syncAdmins()
+        }
+    }
+
+    fun syncAdmins() {
+        viewModelScope.launch {
+            try {
+                var fetched = repository.getAdmins()
+                if (fetched.none { it.username == "admin" }) {
+                    val defaultAdmin = Admin(
+                        id = java.util.UUID.randomUUID().toString(),
+                        username = "admin",
+                        passwordHash = "maher736462",
+                        role = "owner",
+                        isActive = true
+                    )
+                    repository.createAdmin(defaultAdmin)
+                    fetched = repository.getAdmins()
+                }
+                remoteAdmins = fetched
+                adminsList = fetched.map { it.username }.toSet()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -127,51 +154,108 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addAdminUser(username: String, passwordInitial: String) {
         val trimmed = username.trim()
         if (trimmed.isNotBlank()) {
-            settingsManager.addAdmin(trimmed)
-            settingsManager.setAdminPassword(trimmed, passwordInitial)
-            adminsList = settingsManager.admins
+            viewModelScope.launch {
+                val newAdmin = Admin(
+                    id = java.util.UUID.randomUUID().toString(),
+                    username = trimmed,
+                    passwordHash = passwordInitial,
+                    role = "admin",
+                    isActive = true
+                )
+                repository.createAdmin(newAdmin)
+                syncAdmins()
+            }
         }
     }
 
     fun updateAdminPassword(username: String, newPassword: String) {
         val trimmed = username.trim()
         if (trimmed.isNotBlank()) {
-            settingsManager.setAdminPassword(trimmed, newPassword)
+            viewModelScope.launch {
+                repository.updateAdminPassword(trimmed, newPassword)
+                syncAdmins()
+            }
         }
     }
 
     fun getAdminPassword(username: String): String {
-        return settingsManager.getAdminPassword(username.trim())
+        return remoteAdmins.find { it.username.trim() == username.trim() }?.passwordHash ?: ""
     }
 
     fun removeAdminUser(username: String) {
-        settingsManager.removeAdmin(username)
-        adminsList = settingsManager.admins
+        val trimmed = username.trim()
+        if (trimmed.isNotBlank()) {
+            viewModelScope.launch {
+                repository.deleteAdmin(trimmed)
+                syncAdmins()
+            }
+        }
     }
 
-    // User authentication
-    fun loginUser(username: String, passwordEntered: String): String? {
+    // User authentication with callback matching design requirements
+    fun loginUser(username: String, passwordEntered: String, onResult: (String?) -> Unit) {
         val trimmed = username.trim()
-        if (trimmed.isBlank()) return "Username cannot be blank"
+        if (trimmed.isBlank()) {
+            onResult("Username cannot be blank")
+            return
+        }
         
-        val admins = settingsManager.admins
-        if (admins.contains(trimmed)) {
-            val correctPwd = settingsManager.getAdminPassword(trimmed)
-            if (passwordEntered == correctPwd) {
-                loggedInUser = trimmed
-                settingsManager.currentUser = trimmed
-                if (trimmed == "admin") {
-                    isOwnerModeActive = true
+        viewModelScope.launch {
+            try {
+                var currentAdmins = repository.getAdmins()
+                if (currentAdmins.none { it.username == "admin" }) {
+                    val defaultAdmin = Admin(
+                        id = java.util.UUID.randomUUID().toString(),
+                        username = "admin",
+                        passwordHash = "maher736462",
+                        role = "owner",
+                        isActive = true
+                    )
+                    repository.createAdmin(defaultAdmin)
+                    currentAdmins = repository.getAdmins()
                 }
-                return null // success
-            } else {
-                return "WrongPassword"
+                
+                remoteAdmins = currentAdmins
+                adminsList = currentAdmins.map { it.username }.toSet()
+                
+                val foundAdmin = currentAdmins.find { it.username == trimmed }
+                val success = if (foundAdmin != null) {
+                    foundAdmin.passwordHash == passwordEntered
+                } else {
+                    true // standard user
+                }
+                
+                // Record log login attempt to Supabase
+                val deviceId = android.os.Build.MODEL ?: "Android Device"
+                val attempt = LoginAttempt(
+                    username = trimmed,
+                    success = success,
+                    timestamp = java.text.DateFormat.getDateTimeInstance().format(java.util.Date()),
+                    deviceId = deviceId
+                )
+                repository.logLoginAttempt(attempt)
+                
+                if (foundAdmin != null) {
+                    if (success) {
+                        loggedInUser = trimmed
+                        settingsManager.currentUser = trimmed
+                        if (trimmed == "admin") {
+                            isOwnerModeActive = true
+                        }
+                        onResult(null) // success
+                    } else {
+                        onResult("WrongPassword")
+                    }
+                } else {
+                    // Standard client user
+                    loggedInUser = trimmed
+                    settingsManager.currentUser = trimmed
+                    onResult(null) // success
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult("Connection failed. Check your internet connection.")
             }
-        } else {
-            // Standard client user
-            loggedInUser = trimmed
-            settingsManager.currentUser = trimmed
-            return null // success
         }
     }
 
@@ -180,16 +264,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         settingsManager.currentUser = null
     }
 
-    // Verification of the backdoor password
-    fun verifyBackdoorPassword(password: String): Boolean {
-        val masterPwd = settingsManager.getAdminPassword("admin")
-        if (password == masterPwd || password == "maher736462") {
-            loggedInUser = "admin"
-            settingsManager.currentUser = "admin"
-            isOwnerModeActive = true
-            return true
+    // Verification of the backdoor password with callback
+    fun verifyBackdoorPassword(password: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val admins = repository.getAdmins()
+                val mainAdmin = admins.find { it.username == "admin" }
+                val correctPwd = mainAdmin?.passwordHash ?: "maher736462"
+                
+                if (password == correctPwd || password == "maher736462") {
+                    loggedInUser = "admin"
+                    settingsManager.currentUser = "admin"
+                    isOwnerModeActive = true
+                    onResult(true)
+                } else {
+                    onResult(false)
+                }
+            } catch (e: Exception) {
+                // local fallback if offline
+                if (password == "maher736462") {
+                    loggedInUser = "admin"
+                    settingsManager.currentUser = "admin"
+                    isOwnerModeActive = true
+                    onResult(true)
+                } else {
+                    onResult(false)
+                }
+            }
         }
-        return false
     }
 
     fun exitOwnerMode() {
