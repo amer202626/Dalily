@@ -120,7 +120,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // Filter out empty usernames
             fetched = fetched.filter { it.username.isNotBlank() }
             
-            remoteAdmins = fetched
+            // Check for system app wide custom configuration inside Supabase Database
+            val configRecord = fetched.find { it.username == "app_config" }
+            if (configRecord != null) {
+                val data = configRecord.passwordHash
+                if (data.startsWith("CONFIG_V1||")) {
+                    val parts = data.split("||")
+                    if (parts.size >= 9) {
+                        appNameAr = parts[1]
+                        settingsManager.appNameAr = parts[1]
+                        appNameEn = parts[2]
+                        settingsManager.appNameEn = parts[2]
+                        primaryColorHex = parts[3]
+                        settingsManager.primaryColor = parts[3]
+                        secondaryColorHex = parts[4]
+                        settingsManager.secondaryColor = parts[4]
+                        iconLetterAr = parts[5]
+                        settingsManager.iconLetterAr = parts[5]
+                        iconLetterEn = parts[6]
+                        settingsManager.iconLetterEn = parts[6]
+                        footerText = parts[7]
+                        settingsManager.footerText = parts[7]
+                        defaultLanguage = parts[8]
+                        settingsManager.defaultLanguage = parts[8]
+                    }
+                }
+            }
+            
+            // Exclude system config record from regular admins list displayed in UI
+            val realAdminsList = fetched.filter { it.username != "app_config" }
+            remoteAdmins = realAdminsList
             adminsList = fetched.map { it.username }.toSet()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -180,6 +209,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         defaultLanguage = defLang
         settingsManager.defaultLanguage = defLang
+
+        // Save to remote Supabase database so it syncs with all other active device clients!
+        viewModelScope.launch {
+            try {
+                val configData = "CONFIG_V1||$arName||$enName||$pColor||$sColor||$iconAr||$iconEn||$footer||$defLang"
+                val response = repository.getAdmins()
+                val existing = response.find { it.username == "app_config" }
+                if (existing != null) {
+                    repository.updateAdminPassword("app_config", configData)
+                } else {
+                    val configAdmin = Admin(
+                        id = java.util.UUID.randomUUID().toString(),
+                        username = "app_config",
+                        passwordHash = configData,
+                        role = "config",
+                        isActive = true
+                    )
+                    repository.createAdmin(configAdmin)
+                }
+                // Sync admins after update to align state perfectly
+                performSyncAdmins()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     // Admin user control
