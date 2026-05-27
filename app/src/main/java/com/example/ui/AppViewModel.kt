@@ -91,6 +91,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun performSyncAdmins() {
+        // Pre-populate state from local SharedPreferences so supervisors are instantly available offline on launch
+        val localCached = settingsManager.getAdminsLocal()
+        if (localCached.isNotEmpty() && remoteAdmins.isEmpty()) {
+            val nonConfig = localCached.filter { it.username != "app_config" }
+            remoteAdmins = nonConfig
+            adminsList = nonConfig.map { it.username }.toSet()
+        }
+
         try {
             var fetched = repository.getAdmins()
             
@@ -99,7 +107,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val defaultAdmin = Admin(
                     id = java.util.UUID.randomUUID().toString(),
                     username = "admin",
-                    passwordHash = "maher736462",
+                    passwordHash = settingsManager.adminPasswordOverride ?: "maher736462",
                     role = "super_admin",
                     isActive = true
                 )
@@ -147,10 +155,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             
+            val mergedList = fetched.toMutableList()
+            // Merge local admins that might not have synchronized yet to make them 100% resilient
+            localCached.forEach { local ->
+                if (mergedList.none { it.username.trim() == local.username.trim() }) {
+                    mergedList.add(local)
+                }
+            }
+
+            // Apply master password override locally to prevent remote databases from reverting it
+            val overridePwd = settingsManager.adminPasswordOverride
+            val finalFetched = mergedList.map { adminRecord ->
+                if (adminRecord.username == "admin" && overridePwd != null) {
+                    adminRecord.copy(passwordHash = overridePwd)
+                } else {
+                    adminRecord
+                }
+            }
+
             // Exclude system config record from regular admins list displayed in UI
-            val realAdminsList = fetched.filter { it.username != "app_config" }
+            val realAdminsList = finalFetched.filter { it.username != "app_config" }
             remoteAdmins = realAdminsList
-            adminsList = fetched.map { it.username }.toSet()
+            adminsList = realAdminsList.map { it.username }.toSet()
+
+            // Update local cache
+            settingsManager.saveAdminsLocal(finalFetched)
         } catch (e: Exception) {
             e.printStackTrace()
             // Ensure local fallback list of admins is never empty
@@ -158,7 +187,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val localAdmin = Admin(
                     id = "local_admin_id",
                     username = "admin",
-                    passwordHash = "maher736462",
+                    passwordHash = settingsManager.adminPasswordOverride ?: "maher736462",
                     role = "super_admin",
                     isActive = true
                 )
@@ -249,19 +278,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     isActive = true
                 )
                 
-                // 1. Instant UI update (Optimistic Update)
+                // 1. Instant local cache update to guarantee offline availability
+                val localList = settingsManager.getAdminsLocal().filterNot { it.username == trimmed } + newAdmin
+                settingsManager.saveAdminsLocal(localList)
+
+                // 2. Instant UI update (Optimistic Update)
                 val updatedList = remoteAdmins.filterNot { it.username == trimmed } + newAdmin
                 remoteAdmins = updatedList
                 adminsList = updatedList.map { it.username }.toSet()
                 
-                // 2. Persist to Supabase
+                // 3. Persist to Supabase
                 try {
                     repository.createAdmin(newAdmin)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
                 
-                // 3. Re-sync to verify and align with database state
+                // 4. Re-sync to verify and align with database state
                 performSyncAdmins()
             }
         }
@@ -274,8 +307,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (trimmed.isNotBlank()) {
+            if (trimmed == "admin") {
+                settingsManager.adminPasswordOverride = newPassword
+            }
             viewModelScope.launch {
-                // 1. Instant UI update (Optimistic Update)
+                // 1. Instant local cache update
+                val localList = settingsManager.getAdminsLocal().map {
+                    if (it.username == trimmed) it.copy(passwordHash = newPassword) else it
+                }
+                settingsManager.saveAdminsLocal(localList)
+
+                // 2. Instant UI update (Optimistic Update)
                 val updatedList = remoteAdmins.map {
                     if (it.username == trimmed) {
                         it.copy(passwordHash = newPassword)
@@ -285,14 +327,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 remoteAdmins = updatedList
                 
-                // 2. Persist to Supabase
+                // 3. Persist to Supabase
                 try {
                     repository.updateAdminPassword(trimmed, newPassword)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
                 
-                // 3. Re-sync
+                // 4. Re-sync
                 performSyncAdmins()
             }
         }
@@ -310,19 +352,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (trimmed.isNotBlank()) {
             viewModelScope.launch {
-                // 1. Instant UI update (Optimistic Update)
+                // 1. Instant local cache update
+                val localList = settingsManager.getAdminsLocal().filterNot { it.username == trimmed }
+                settingsManager.saveAdminsLocal(localList)
+
+                // 2. Instant UI update (Optimistic Update)
                 val updatedList = remoteAdmins.filterNot { it.username == trimmed }
                 remoteAdmins = updatedList
                 adminsList = updatedList.map { it.username }.toSet()
                 
-                // 2. Persist to Supabase
+                // 3. Persist to Supabase
                 try {
                     repository.deleteAdmin(trimmed)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
                 
-                // 3. Re-sync
+                // 4. Re-sync
                 performSyncAdmins()
             }
         }

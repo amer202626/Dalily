@@ -58,4 +58,30 @@ class SettingsManager(context: Context) {
     var currentUser: String?
         get() = prefs.getString(KEY_CURRENT_USER, null)
         set(value) = prefs.edit().putString(KEY_CURRENT_USER, value).apply()
+
+    var adminPasswordOverride: String?
+        get() = prefs.getString("admin_password_override", null)
+        set(value) = prefs.edit().putString("admin_password_override", value).apply()
+
+    fun saveAdminsLocal(admins: List<Admin>) {
+        val encoded = admins.joinToString(";") { "${it.id}||${it.username}||${it.passwordHash}||${it.role}||${it.isActive}" }
+        prefs.edit().putString("cached_admins_list", encoded).apply()
+    }
+
+    fun getAdminsLocal(): List<Admin> {
+        val encoded = prefs.getString("cached_admins_list", null) ?: return emptyList()
+        if (encoded.isBlank()) return emptyList()
+        return encoded.split(";").mapNotNull { block ->
+            val parts = block.split("||")
+            if (parts.size >= 5) {
+                Admin(
+                    id = parts[0],
+                    username = parts[1],
+                    passwordHash = parts[2],
+                    role = parts[3],
+                    isActive = parts[4].toBoolean()
+                )
+            } else null
+        }
+    }
 }
