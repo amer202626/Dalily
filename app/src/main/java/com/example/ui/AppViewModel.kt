@@ -269,6 +269,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateAdminPassword(username: String, newPassword: String) {
         val trimmed = username.trim()
+        if (trimmed == "admin" && (loggedInUser != "admin" && !isOwnerModeActive)) {
+            // High Security Barrier: Block unauthorized clients/users from tampering with the master password
+            return
+        }
         if (trimmed.isNotBlank()) {
             viewModelScope.launch {
                 // 1. Instant UI update (Optimistic Update)
@@ -300,6 +304,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removeAdminUser(username: String) {
         val trimmed = username.trim()
+        if (trimmed == "admin" || trimmed == "app_config") {
+            // Prevent removing the master owner account or the remote configuration container entry
+            return
+        }
         if (trimmed.isNotBlank()) {
             viewModelScope.launch {
                 // 1. Instant UI update (Optimistic Update)
