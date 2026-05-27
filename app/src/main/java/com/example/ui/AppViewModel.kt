@@ -124,11 +124,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Admin user control
-    fun addAdminUser(username: String) {
-        if (username.isNotBlank()) {
-            settingsManager.addAdmin(username)
+    fun addAdminUser(username: String, passwordInitial: String) {
+        val trimmed = username.trim()
+        if (trimmed.isNotBlank()) {
+            settingsManager.addAdmin(trimmed)
+            settingsManager.setAdminPassword(trimmed, passwordInitial)
             adminsList = settingsManager.admins
         }
+    }
+
+    fun updateAdminPassword(username: String, newPassword: String) {
+        val trimmed = username.trim()
+        if (trimmed.isNotBlank()) {
+            settingsManager.setAdminPassword(trimmed, newPassword)
+        }
+    }
+
+    fun getAdminPassword(username: String): String {
+        return settingsManager.getAdminPassword(username.trim())
     }
 
     fun removeAdminUser(username: String) {
@@ -137,13 +150,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // User authentication
-    fun loginUser(username: String): Boolean {
-        if (username.isNotBlank()) {
-            loggedInUser = username
-            settingsManager.currentUser = username
-            return true
+    fun loginUser(username: String, passwordEntered: String): String? {
+        val trimmed = username.trim()
+        if (trimmed.isBlank()) return "Username cannot be blank"
+        
+        val admins = settingsManager.admins
+        if (admins.contains(trimmed)) {
+            val correctPwd = settingsManager.getAdminPassword(trimmed)
+            if (passwordEntered == correctPwd) {
+                loggedInUser = trimmed
+                settingsManager.currentUser = trimmed
+                if (trimmed == "admin") {
+                    isOwnerModeActive = true
+                }
+                return null // success
+            } else {
+                return "WrongPassword"
+            }
+        } else {
+            // Standard client user
+            loggedInUser = trimmed
+            settingsManager.currentUser = trimmed
+            return null // success
         }
-        return false
     }
 
     fun logoutUser() {
@@ -153,7 +182,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // Verification of the backdoor password
     fun verifyBackdoorPassword(password: String): Boolean {
-        if (password == "maher--736462") {
+        val masterPwd = settingsManager.getAdminPassword("admin")
+        if (password == masterPwd || password == "maher736462") {
+            loggedInUser = "admin"
+            settingsManager.currentUser = "admin"
             isOwnerModeActive = true
             return true
         }
@@ -165,16 +197,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Category CRUD
-    fun addCategory(id: String, nameAr: String, nameEn: String, icon: String, orderIndex: Int) {
+    fun addCategory(id: String, nameAr: String, nameEn: String, icon: String, orderIndex: Int, imageUrl: String? = null) {
         viewModelScope.launch {
-            val category = Category(id, nameAr, nameEn, icon, orderIndex)
+            val category = Category(id, nameAr, nameEn, icon, orderIndex, true, imageUrl)
             repository.saveCategory(category)
         }
     }
 
-    fun updateCategory(id: String, nameAr: String, nameEn: String, icon: String, orderIndex: Int) {
+    fun updateCategory(id: String, nameAr: String, nameEn: String, icon: String, orderIndex: Int, imageUrl: String? = null) {
         viewModelScope.launch {
-            repository.updateCategory(id, nameAr, nameEn, icon, orderIndex)
+            repository.updateCategory(id, nameAr, nameEn, icon, orderIndex, imageUrl)
         }
     }
 

@@ -25,7 +25,10 @@ data class Category(
     val orderIndex: Int,
     
     @Json(name = "is_active")
-    val isActive: Boolean = true
+    val isActive: Boolean = true,
+    
+    @Json(name = "image_url")
+    val imageUrl: String? = null
 )
 
 @Entity(tableName = "service_providers")

@@ -74,5 +74,18 @@ class SettingsManager(context: Context) {
         val currentAdmins = admins.toMutableSet()
         currentAdmins.remove(username)
         admins = currentAdmins
+        prefs.edit().remove("admin_pwd_$username").apply()
+    }
+
+    fun getAdminPassword(username: String): String {
+        return if (username == "admin") {
+            prefs.getString("admin_pwd_admin", "maher736462") ?: "maher736462"
+        } else {
+            prefs.getString("admin_pwd_$username", "123456") ?: "123456"
+        }
+    }
+
+    fun setAdminPassword(username: String, password: String) {
+        prefs.edit().putString("admin_pwd_$username", password).apply()
     }
 }

@@ -91,16 +91,19 @@ class Repository(
         }
     }
 
-    suspend fun updateCategory(id: String, nameAr: String, nameEn: String, icon: String, orderIndex: Int) {
-        val cat = Category(id, nameAr, nameEn, icon, orderIndex)
+    suspend fun updateCategory(id: String, nameAr: String, nameEn: String, icon: String, orderIndex: Int, imageUrl: String? = null) {
+        val cat = Category(id, nameAr, nameEn, icon, orderIndex, true, imageUrl)
         categoryDao.insertCategory(cat)
         try {
-            val updates = mapOf<String, Any>(
+            val updates = mutableMapOf<String, Any>(
                 "name_ar" to nameAr,
                 "name_en" to nameEn,
                 "icon" to icon,
                 "order_index" to orderIndex
             )
+            if (imageUrl != null) {
+                updates["image_url"] = imageUrl
+            }
             val response = supabase.updateCategory("eq.$id", updates)
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response updating category in Supabase: ${response.code()}")
