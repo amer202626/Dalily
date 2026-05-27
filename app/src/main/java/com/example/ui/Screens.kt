@@ -186,20 +186,20 @@ fun MainLayout(
                 )
             },
             bottomBar = {
-                // Persistent Advertisement Footer
+                // Centered small grey footer text as per requirement
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFFEEEEEE))
-                        .padding(vertical = 12.dp),
+                        .background(Color.Transparent)
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = viewModel.footerText,
-                        color = Color.Black,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Normal,
+                        textAlign = TextAlign.Center
                     )
                 }
             },
@@ -981,7 +981,22 @@ fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) 
     val isArabic = viewModel.currentLanguage == "ar"
     val language = viewModel.currentLanguage
 
-    var activeTab by remember { mutableStateOf(0) } // 0: Categories, 1: Providers, 2: App Branding, 3: Admins
+    val isSuperAdmin = viewModel.loggedInUser == "admin"
+    var activeTab by remember { mutableStateOf(0) } 
+
+    val tabs = if (isSuperAdmin) {
+        listOf(
+            if (isArabic) "الأقسام" else "Categories",
+            if (isArabic) "مقدمو الخدمات" else "Providers",
+            if (isArabic) "الهوية" else "Brand",
+            if (isArabic) "المشرفون" else "Admins"
+        )
+    } else {
+        listOf(
+            if (isArabic) "الأقسام" else "Categories",
+            if (isArabic) "مقدمو الخدمات" else "Providers"
+        )
+    }
 
     MainLayout(
         viewModel = viewModel,
@@ -989,7 +1004,7 @@ fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) 
         showBackButton = true,
         titleContent = {
             Text(
-                text = if (isArabic) "لوحة تحكم المالك" else "Owner Dashboard",
+                text = if (isArabic) "لوحة التحكم" else "Dashboard",
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )
@@ -1020,26 +1035,13 @@ fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) 
                 containerColor = Color(0xFFF5F5F5),
                 contentColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))
             ) {
-                Tab(
-                    selected = activeTab == 0,
-                    onClick = { activeTab = 0 },
-                    text = { Text(if (isArabic) "الأقسام" else "Categories", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                )
-                Tab(
-                    selected = activeTab == 1,
-                    onClick = { activeTab = 1 },
-                    text = { Text(if (isArabic) "مقدمو الخدمات" else "Providers", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                )
-                Tab(
-                    selected = activeTab == 2,
-                    onClick = { activeTab = 2 },
-                    text = { Text(if (isArabic) "الهوية" else "Brand", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                )
-                Tab(
-                    selected = activeTab == 3,
-                    onClick = { activeTab = 3 },
-                    text = { Text(if (isArabic) "المشرفون" else "Admins", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                )
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = activeTab == index,
+                        onClick = { activeTab = index },
+                        text = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    )
+                }
             }
 
             // Tab contents rendering
@@ -1048,11 +1050,18 @@ fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) 
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                when (activeTab) {
-                    0 -> DashboardCategoriesTab(categories, viewModel)
-                    1 -> DashboardProvidersTab(providers, categories, viewModel)
-                    2 -> DashboardBrandingTab(viewModel)
-                    3 -> DashboardAdminsTab(viewModel)
+                if (isSuperAdmin) {
+                    when (activeTab) {
+                        0 -> DashboardCategoriesTab(categories, viewModel)
+                        1 -> DashboardProvidersTab(providers, categories, viewModel)
+                        2 -> DashboardBrandingTab(viewModel)
+                        3 -> DashboardAdminsTab(viewModel)
+                    }
+                } else {
+                    when (activeTab) {
+                        0 -> DashboardCategoriesTab(categories, viewModel)
+                        1 -> DashboardProvidersTab(providers, categories, viewModel)
+                    }
                 }
             }
         }

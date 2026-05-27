@@ -78,18 +78,3 @@ data class Admin(
     val isActive: Boolean = true
 )
 
-@JsonClass(generateAdapter = true)
-data class LoginAttempt(
-    @Json(name = "username")
-    val username: String,
-    
-    @Json(name = "success")
-    val success: Boolean,
-    
-    @Json(name = "timestamp")
-    val timestamp: String,
-    
-    @Json(name = "device_id")
-    val deviceId: String
-)
-

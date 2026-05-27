@@ -93,7 +93,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         id = java.util.UUID.randomUUID().toString(),
                         username = "admin",
                         passwordHash = "maher736462",
-                        role = "owner",
+                        role = "super_admin",
                         isActive = true
                     )
                     repository.createAdmin(defaultAdmin)
@@ -208,7 +208,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         id = java.util.UUID.randomUUID().toString(),
                         username = "admin",
                         passwordHash = "maher736462",
-                        role = "owner",
+                        role = "super_admin",
                         isActive = true
                     )
                     repository.createAdmin(defaultAdmin)
@@ -224,16 +224,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     true // standard user
                 }
-                
-                // Record log login attempt to Supabase
-                val deviceId = android.os.Build.MODEL ?: "Android Device"
-                val attempt = LoginAttempt(
-                    username = trimmed,
-                    success = success,
-                    timestamp = java.text.DateFormat.getDateTimeInstance().format(java.util.Date()),
-                    deviceId = deviceId
-                )
-                repository.logLoginAttempt(attempt)
                 
                 if (foundAdmin != null) {
                     if (success) {

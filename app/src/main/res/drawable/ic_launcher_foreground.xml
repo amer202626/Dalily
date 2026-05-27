@@ -4,30 +4,12 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     
-    <!-- Outer white circle indicator -->
+    <!-- Polished elegant letter 'د' in the center in white with rounded caps -->
     <path
-        android:fillColor="#00000000"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.5"
-        android:pathData="M54,18 A32,32 0 1,1 53.9,18 Z" />
-
-    <!-- Book/Directory silhouette inside -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M38,32H66V72H38V32Z" />
-        
-    <!-- Binder fold indicator in Orange as requested -->
-    <path
-        android:fillColor="#FB8C00"
-        android:pathData="M62,32H66V72H62V32Z" />
-
-    <!-- Stylized letter 'D' / 'د' icon inside book in Blue -->
-    <path
-        android:fillColor="#1E88E5"
-        android:pathData="M44,40H52C55.3,40 58,42 58,46C58,50 55.3,52 52,52H44V40ZM48,43V49H52C53.5,49 54,48 54,46C54,44 53.5,43 52,43H48Z" />
-
-    <!-- Directory ratings star symbol in Orange -->
-    <path
-        android:fillColor="#FB8C00"
-        android:pathData="M54,58L55.5,61.5L59,62L56.5,64.5L57.2,68L54,66.2L50.8,68L51.5,64.5L49,62L52.5,61.5L54,58Z" />
+        android:strokeWidth="11"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M66,38 C60,38 46,44 46,58 C46,65 50,68 56,68 L66,68" />
 </vector>

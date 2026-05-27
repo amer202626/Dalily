@@ -71,11 +71,6 @@ interface SupabaseService {
     suspend fun deleteAdmin(
         @Query("username") usernameFilter: String
     ): Response<Unit>
-
-    @POST("rest/v1/login_attempts")
-    suspend fun logLoginAttempt(
-        @Body attempt: LoginAttempt
-    ): Response<Unit>
 }
 
 object SupabaseClient {

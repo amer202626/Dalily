@@ -224,15 +224,4 @@ class Repository(
             Log.e(TAG, "Network error deleting admin from Supabase: ${e.message}")
         }
     }
-
-    suspend fun logLoginAttempt(attempt: LoginAttempt) {
-        try {
-            val response = supabase.logLoginAttempt(attempt)
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Failed response logging login attempt in Supabase: ${response.code()}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Network error logging login attempt in Supabase: ${e.message}")
-        }
-    }
 }
