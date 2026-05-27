@@ -86,24 +86,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun syncAdmins() {
         viewModelScope.launch {
-            try {
-                var fetched = repository.getAdmins()
-                if (fetched.none { it.username == "admin" }) {
-                    val defaultAdmin = Admin(
-                        id = java.util.UUID.randomUUID().toString(),
-                        username = "admin",
-                        passwordHash = "maher736462",
-                        role = "super_admin",
-                        isActive = true
-                    )
-                    repository.createAdmin(defaultAdmin)
-                    fetched = repository.getAdmins()
-                }
-                remoteAdmins = fetched
-                adminsList = fetched.map { it.username }.toSet()
-            } catch (e: Exception) {
-                e.printStackTrace()
+            performSyncAdmins()
+        }
+    }
+
+    suspend fun performSyncAdmins() {
+        try {
+            var fetched = repository.getAdmins()
+            if (fetched.none { it.username == "admin" }) {
+                val defaultAdmin = Admin(
+                    id = java.util.UUID.randomUUID().toString(),
+                    username = "admin",
+                    passwordHash = "maher736462",
+                    role = "super_admin",
+                    isActive = true
+                )
+                repository.createAdmin(defaultAdmin)
+                fetched = repository.getAdmins()
             }
+            remoteAdmins = fetched
+            adminsList = fetched.map { it.username }.toSet()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -163,7 +167,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     isActive = true
                 )
                 repository.createAdmin(newAdmin)
-                syncAdmins()
+                performSyncAdmins()
             }
         }
     }
@@ -173,7 +177,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (trimmed.isNotBlank()) {
             viewModelScope.launch {
                 repository.updateAdminPassword(trimmed, newPassword)
-                syncAdmins()
+                performSyncAdmins()
             }
         }
     }
@@ -187,7 +191,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (trimmed.isNotBlank()) {
             viewModelScope.launch {
                 repository.deleteAdmin(trimmed)
-                syncAdmins()
+                performSyncAdmins()
             }
         }
     }
@@ -195,8 +199,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // User authentication with callback matching design requirements
     fun loginUser(username: String, passwordEntered: String, onResult: (String?) -> Unit) {
         val trimmed = username.trim()
+        val isArabic = currentLanguage == "ar"
         if (trimmed.isBlank()) {
-            onResult("Username cannot be blank")
+            onResult(if (isArabic) "اسم المستخدم لا يمكن أن يكون فارغاً" else "Username cannot be blank")
             return
         }
         
@@ -219,32 +224,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 adminsList = currentAdmins.map { it.username }.toSet()
                 
                 val foundAdmin = currentAdmins.find { it.username == trimmed }
-                val success = if (foundAdmin != null) {
-                    foundAdmin.passwordHash == passwordEntered
-                } else {
-                    true // standard user
-                }
-                
-                if (foundAdmin != null) {
-                    if (success) {
-                        loggedInUser = trimmed
-                        settingsManager.currentUser = trimmed
-                        if (trimmed == "admin") {
-                            isOwnerModeActive = true
-                        }
-                        onResult(null) // success
-                    } else {
-                        onResult("WrongPassword")
-                    }
-                } else {
-                    // Standard client user
+                if (foundAdmin != null && foundAdmin.passwordHash == passwordEntered) {
                     loggedInUser = trimmed
                     settingsManager.currentUser = trimmed
+                    if (trimmed == "admin") {
+                        isOwnerModeActive = true
+                    }
                     onResult(null) // success
+                } else {
+                    onResult(if (isArabic) "خطأ في بيانات الدخول" else "Incorrect username or password")
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                onResult("Connection failed. Check your internet connection.")
+                onResult(if (isArabic) "فشل الاتصال. تحقق من الاتصال بالإنترنت." else "Connection failed. Check your internet connection.")
             }
         }
     }

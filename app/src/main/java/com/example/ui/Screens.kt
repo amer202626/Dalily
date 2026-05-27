@@ -815,7 +815,6 @@ fun ProfileOrLoginDialog(
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var isRegisterState by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -834,8 +833,6 @@ fun ProfileOrLoginDialog(
                 Text(
                     text = if (viewModel.loggedInUser != null) {
                         Translator.getString("my_profile", language)
-                    } else if (isRegisterState) {
-                        Translator.getString("signup", language)
                     } else {
                         Translator.getString("login", language)
                     },
@@ -902,7 +899,7 @@ fun ProfileOrLoginDialog(
                         Text(Translator.getString("logout", language))
                     }
                 } else {
-                    // Enter Login/Signup inputs
+                    // Enter Login inputs
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
@@ -929,8 +926,6 @@ fun ProfileOrLoginDialog(
                                 if (loginError == null) {
                                     Toast.makeText(context, if (isArabic) "تم تسجيل الدخول بنجاح!" else "Logged in successfully!", Toast.LENGTH_SHORT).show()
                                     onDismiss()
-                                } else if (loginError == "WrongPassword") {
-                                    Toast.makeText(context, if (isArabic) "كلمة المرور خاطئة!" else "Incorrect Password!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     Toast.makeText(context, loginError, Toast.LENGTH_SHORT).show()
                                 }
@@ -939,25 +934,7 @@ fun ProfileOrLoginDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))),
                         modifier = Modifier.fillMaxWidth().testTag("login_submit_btn")
                     ) {
-                        Text(if (isRegisterState) Translator.getString("signup", language) else Translator.getString("enter", language))
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    TextButton(onClick = { isRegisterState = !isRegisterState }) {
-                        Text(
-                            text = if (isRegisterState) {
-                                if (isArabic) "لديك حساب بالفعل؟ سجل دخول" else "Already have an account? Login"
-                            } else {
-                                if (isArabic) "لا تملك حساباً؟ أنشئ حساب جديد" else "Don't have an account? Sign Up"
-                            }
-                        )
-                    }
-
-                    TextButton(onClick = {
-                        Toast.makeText(context, if (isArabic) "سرية للغاية - اتصل بالمسؤول" else "Top secret - call administrator", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Text(Translator.getString("forgot_password", language), color = Color.Gray, fontSize = 12.sp)
+                        Text(Translator.getString("enter", language))
                     }
                 }
 
@@ -983,6 +960,10 @@ fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) 
 
     val isSuperAdmin = viewModel.loggedInUser == "admin"
     var activeTab by remember { mutableStateOf(0) } 
+
+    LaunchedEffect(Unit) {
+        viewModel.syncAdmins()
+    }
 
     val tabs = if (isSuperAdmin) {
         listOf(
