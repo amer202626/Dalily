@@ -11,17 +11,19 @@ import com.example.data.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.UUID
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
+import java.util.Date
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
-    private val supabaseService = SupabaseClient.getService()
     
     val settingsManager = SettingsManager(application)
     val repository = Repository(
         database.categoryDao(),
         database.serviceProviderDao(),
-        database.reviewDao(),
-        supabaseService
+        database.reviewDao()
     )
 
     companion object {
@@ -83,7 +85,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             Log.e(TAG, "Failed launching Firestore snapshot listeners: ${e.message}")
         }
 
-        // Perform initial pull sync from Supabase
+        // Perform initial pull sync and seeding from Firestore
         syncData(force = false)
         loadAdmins()
     }
@@ -134,12 +136,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 isSyncing = true
                 try {
-                    repository.syncWithSupabase(settingsManager)
+                    repository.syncWithFirestore(settingsManager)
                     settingsManager.lastSyncTimestamp = System.currentTimeMillis()
                     lastSyncSuccess = true
-                    Log.d(TAG, "Supabase synchronization successfully executed.")
+                    Log.d(TAG, "Firestore synchronization successfully executed.")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Supabase synchronization failed: ${e.message}")
+                    Log.e(TAG, "Firestore synchronization failed: ${e.message}")
                     lastSyncSuccess = false
                 } finally {
                     isSyncing = false
@@ -217,9 +219,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addReview(providerId: String, userName: String, comment: String, rating: Float) {
         viewModelScope.launch {
             val reviewId = UUID.randomUUID().toString()
-            val createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }.format(java.util.Date())
+            val createdAt = getCurrentTimeIso()
             
             val review = Review(reviewId, providerId, userName, comment, rating, createdAt)
             repository.saveReview(review)

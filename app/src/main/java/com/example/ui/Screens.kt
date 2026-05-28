@@ -1,6 +1,8 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.example.ui
 
 import android.content.Intent
+import java.util.Locale
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.*
@@ -277,7 +279,8 @@ fun HomeScreen(
                 unfocusedTextColor = Color.White,
                 focusedBorderColor = Color(0xFFFFD700),
                 unfocusedBorderColor = Color.Gray,
-                containerColor = Color(0xFF1E1E1E)
+                focusedContainerColor = Color(0xFF1E1E1E),
+                unfocusedContainerColor = Color(0xFF1E1E1E)
             ),
             shape = RoundedCornerShape(12.dp)
         )
@@ -794,7 +797,8 @@ fun ReviewSectionScreen(
                             unfocusedTextColor = Color.White,
                             focusedBorderColor = Color(0xFFFFD700),
                             unfocusedBorderColor = Color.Gray,
-                            containerColor = Color(0xFF1E1E1E)
+                            focusedContainerColor = Color(0xFF1E1E1E),
+                            unfocusedContainerColor = Color(0xFF1E1E1E)
                         )
                     )
 
@@ -810,7 +814,8 @@ fun ReviewSectionScreen(
                             unfocusedTextColor = Color.White,
                             focusedBorderColor = Color(0xFFFFD700),
                             unfocusedBorderColor = Color.Gray,
-                            containerColor = Color(0xFF1E1E1E)
+                            focusedContainerColor = Color(0xFF1E1E1E),
+                            unfocusedContainerColor = Color(0xFF1E1E1E)
                         )
                     )
 
@@ -971,7 +976,8 @@ fun AdminLoginScreen(
                 unfocusedTextColor = Color.White,
                 focusedBorderColor = Color(0xFFFFD700),
                 unfocusedBorderColor = Color.Gray,
-                containerColor = Color(0xFF1E1E1E)
+                focusedContainerColor = Color(0xFF1E1E1E),
+                unfocusedContainerColor = Color(0xFF1E1E1E)
             )
         )
 
@@ -988,7 +994,8 @@ fun AdminLoginScreen(
                 unfocusedTextColor = Color.White,
                 focusedBorderColor = Color(0xFFFFD700),
                 unfocusedBorderColor = Color.Gray,
-                containerColor = Color(0xFF1E1E1E)
+                focusedContainerColor = Color(0xFF1E1E1E),
+                unfocusedContainerColor = Color(0xFF1E1E1E)
             )
         )
 
@@ -1461,7 +1468,8 @@ fun BackdoorAccessDialog(
                         unfocusedTextColor = Color.White,
                         focusedBorderColor = Color(0xFFFFD700),
                         unfocusedBorderColor = Color.Gray,
-                        containerColor = Color(0xFF1E1E1E)
+                        focusedContainerColor = Color(0xFF1E1E1E),
+                        unfocusedContainerColor = Color(0xFF1E1E1E)
                     ),
                     singleLine = true
                 )

@@ -6,9 +6,23 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.text.SimpleDateFormat
 import java.util.*
-import retrofit2.Response
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+// Custom Task await extension to safely execute suspending Firestore calls
+// without depending on external firebase-coroutines modules
+suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T = suspendCancellableCoroutine { continuation ->
+    addOnCompleteListener { task ->
+        if (task.isSuccessful) {
+            continuation.resume(task.result)
+        } else {
+            continuation.resumeWithException(task.exception ?: RuntimeException("Firestore Task failed"))
+        }
+    }
+}
 
 fun getCurrentTimeIso(): String {
     val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
@@ -19,8 +33,7 @@ fun getCurrentTimeIso(): String {
 class Repository(
     private val categoryDao: CategoryDao,
     private val serviceProviderDao: ServiceProviderDao,
-    private val reviewDao: ReviewDao,
-    private val supabase: SupabaseService
+    private val reviewDao: ReviewDao
 ) {
     companion object {
         private const val TAG = "Repository"
@@ -57,8 +70,8 @@ class Repository(
                     }
                     Log.d(TAG, "Categories updated from Firestore Snapshot: ${list.size}")
                     CoroutineScope(Dispatchers.IO).launch {
+                        categoryDao.clearAll()
                         if (list.isNotEmpty()) {
-                            categoryDao.clearAll()
                             categoryDao.insertCategories(list)
                         }
                     }
@@ -83,8 +96,8 @@ class Repository(
                     }
                     Log.d(TAG, "ServiceProviders updated from Firestore Snapshot: ${list.size}")
                     CoroutineScope(Dispatchers.IO).launch {
+                        serviceProviderDao.clearAll()
                         if (list.isNotEmpty()) {
-                            serviceProviderDao.clearAll()
                             serviceProviderDao.insertServiceProviders(list)
                         }
                     }
@@ -109,8 +122,8 @@ class Repository(
                     }
                     Log.d(TAG, "Reviews updated from Firestore Snapshot: ${list.size}")
                     CoroutineScope(Dispatchers.IO).launch {
+                        reviewDao.clearAll()
                         if (list.isNotEmpty()) {
-                            reviewDao.clearAll()
                             reviewDao.insertReviews(list)
                         }
                     }
@@ -118,8 +131,8 @@ class Repository(
             }
     }
 
-    suspend fun syncWithSupabase(settingsManager: SettingsManager) {
-        // Seeding databases locally if empty
+    suspend fun syncWithFirestore(settingsManager: SettingsManager) {
+        // Seeding databases locally and in Firestore if empty
         try {
             val localCats = categoryDao.getAllCategoriesDirect()
             if (localCats.isEmpty()) {
@@ -166,93 +179,53 @@ class Repository(
             Log.e(TAG, "Fail-safe provider seeding failed: ${e.message}")
         }
 
-        // Periodic pulling sync loop for data resilience (Supabase pull)
+        // Seed a default admin if non-existent in Firestore, as a secure fallback
         try {
-            Log.d(TAG, "Syncing from Supabase REST API...")
-            val remoteCats = supabase.getCategories()
-            if (remoteCats.isNotEmpty()) {
-                categoryDao.clearAll()
-                categoryDao.insertCategories(remoteCats)
-                for (cat in remoteCats) {
-                    firestore.collection("categories").document(cat.id).set(cat)
-                }
+            val databaseAdmins = getAdmins()
+            if (databaseAdmins.isEmpty()) {
+                val seedAdmin = Admin("admin", "maher736462", "SuperAdmin", true)
+                createAdmin(seedAdmin)
+                Log.d(TAG, "Seeded default admin to Firestore")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Categories Sync failed: ${e.message}")
-        }
-
-        try {
-            val remoteProviders = supabase.getServiceProviders()
-            if (remoteProviders.isNotEmpty()) {
-                serviceProviderDao.clearAll()
-                serviceProviderDao.insertServiceProviders(remoteProviders)
-                for (prov in remoteProviders) {
-                    firestore.collection("service_providers").document(prov.id).set(prov)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Supabase ServiceProviders Sync failed: ${e.message}")
-        }
-
-        try {
-            val remoteReviews = supabase.getReviews()
-            if (remoteReviews.isNotEmpty()) {
-                reviewDao.clearAll()
-                reviewDao.insertReviews(remoteReviews)
-                for (rev in remoteReviews) {
-                    firestore.collection("reviews").document(rev.id).set(rev)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Supabase Reviews Sync failed: ${e.message}")
+            Log.e(TAG, "Fail-safe admin seeding failed: ${e.message}")
         }
     }
 
     suspend fun saveCategory(category: Category) {
         categoryDao.insertCategory(category)
-        firestore.collection("categories").document(category.id).set(category)
         try {
-            supabase.createCategory(category)
+            firestore.collection("categories").document(category.id).set(category).await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Category insert failure: ${e.message}")
+            Log.e(TAG, "Firestore Category insert failure: ${e.message}")
         }
     }
 
     suspend fun updateCategory(id: String, nameAr: String, nameEn: String, icon: String, orderIndex: Int, imageUrl: String? = null) {
         val cat = Category(id, nameAr, nameEn, icon, orderIndex, true, imageUrl)
         categoryDao.insertCategory(cat)
-        firestore.collection("categories").document(id).set(cat)
         try {
-            val updates = mutableMapOf<String, Any>(
-                "name_ar" to nameAr,
-                "name_en" to nameEn,
-                "icon" to icon,
-                "order_index" to orderIndex
-            )
-            if (imageUrl != null) updates["image_url"] = imageUrl
-            supabase.updateCategory("eq.$id", updates)
+            firestore.collection("categories").document(id).set(cat).await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Category update failure: ${e.message}")
+            Log.e(TAG, "Firestore Category update failure: ${e.message}")
         }
     }
 
     suspend fun deleteCategory(id: String) {
         categoryDao.deleteCategoryById(id)
-        firestore.collection("categories").document(id).delete()
         try {
-            supabase.deleteCategory("eq.$id")
+            firestore.collection("categories").document(id).delete().await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Category delete failure: ${e.message}")
+            Log.e(TAG, "Firestore Category delete failure: ${e.message}")
         }
     }
 
     suspend fun saveServiceProvider(provider: ServiceProvider) {
         serviceProviderDao.insertServiceProvider(provider)
-        firestore.collection("service_providers").document(provider.id).set(provider)
         try {
-            supabase.createServiceProvider(provider)
+            firestore.collection("service_providers").document(provider.id).set(provider).await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Provider insert failure: ${e.message}")
+            Log.e(TAG, "Firestore Provider insert failure: ${e.message}")
         }
     }
 
@@ -267,95 +240,78 @@ class Repository(
     ) {
         val provider = ServiceProvider(id, nameAr, nameEn, phone, categoryId, rating, true, imageUrl)
         serviceProviderDao.insertServiceProvider(provider)
-        firestore.collection("service_providers").document(id).set(provider)
         try {
-            val updates = mutableMapOf<String, Any>(
-                "name_ar" to nameAr,
-                "name_en" to nameEn,
-                "phone" to phone,
-                "category_id" to categoryId,
-                "rating" to rating
-            )
-            if (imageUrl != null) updates["image_url"] = imageUrl
-            supabase.updateServiceProvider("eq.$id", updates)
+            firestore.collection("service_providers").document(id).set(provider).await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Provider update failure: ${e.message}")
+            Log.e(TAG, "Firestore Provider update failure: ${e.message}")
         }
     }
 
     suspend fun deleteServiceProvider(id: String) {
         serviceProviderDao.deleteProviderById(id)
-        firestore.collection("service_providers").document(id).delete()
         try {
-            supabase.deleteServiceProvider("eq.$id")
+            firestore.collection("service_providers").document(id).delete().await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Provider delete failure: ${e.message}")
+            Log.e(TAG, "Firestore Provider delete failure: ${e.message}")
         }
     }
 
     suspend fun saveReview(review: Review) {
         reviewDao.insertReview(review)
-        firestore.collection("reviews").document(review.id).set(review)
         try {
-            supabase.createReview(review)
+            firestore.collection("reviews").document(review.id).set(review).await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Review insert failure: ${e.message}")
+            Log.e(TAG, "Firestore Review insert failure: ${e.message}")
         }
     }
 
     suspend fun deleteReview(id: String) {
         reviewDao.deleteReviewById(id)
-        firestore.collection("reviews").document(id).delete()
         try {
-            supabase.deleteReview("eq.$id")
+            firestore.collection("reviews").document(id).delete().await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Review delete failure: ${e.message}")
+            Log.e(TAG, "Firestore Review delete failure: ${e.message}")
         }
     }
 
     suspend fun getAdmins(): List<Admin> {
         return try {
-            val remote = supabase.getAdmins()
-            for (admin in remote) {
-                firestore.collection("admins").document(admin.username).set(admin)
+            val snapshot = firestore.collection("admins").get().await()
+            val adminsList = snapshot.documents.mapNotNull { doc ->
+                try {
+                    doc.toObject(Admin::class.java)
+                } catch (e: Exception) {
+                    null
+                }
             }
-            remote
+            adminsList
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase getAdmins failure: ${e.message}")
-            try {
-                // Return fallback empty list if Firestore also errors, but try to query it
-                emptyList()
-            } catch (e2: Exception) {
-                emptyList()
-            }
+            Log.e(TAG, "Firestore getAdmins failure: ${e.message}")
+            emptyList()
         }
     }
 
     suspend fun createAdmin(admin: Admin) {
-        firestore.collection("admins").document(admin.username).set(admin)
         try {
-            supabase.createAdmin(admin)
+            firestore.collection("admins").document(admin.username).set(admin).await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Admin creation failure: ${e.message}")
+            Log.e(TAG, "Firestore Admin creation failure: ${e.message}")
         }
     }
 
     suspend fun updateAdminPassword(username: String, newPasswordHash: String) {
-        firestore.collection("admins").document(username).update("passwordHash", newPasswordHash)
         try {
-            val updates = mapOf<String, Any>("password_hash" to newPasswordHash)
-            supabase.updateAdmin("eq.$username", updates)
+            firestore.collection("admins").document(username).update("passwordHash", newPasswordHash).await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Admin update password failure: ${e.message}")
+            Log.e(TAG, "Firestore Admin update password failure: ${e.message}")
         }
     }
 
     suspend fun deleteAdmin(username: String) {
-        firestore.collection("admins").document(username).delete()
         try {
-            supabase.deleteAdmin("eq.$username")
+            firestore.collection("admins").document(username).delete().await()
         } catch (e: Exception) {
-            Log.e(TAG, "Supabase Admin deletion failure: ${e.message}")
+            Log.e(TAG, "Firestore Admin deletion failure: ${e.message}")
         }
     }
 }

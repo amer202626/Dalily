@@ -1,6 +1,5 @@
 <resources>
-    <style name="Theme.Dalili" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/gold</item>
+    <style name="Theme.Dalili" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">#000000</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
