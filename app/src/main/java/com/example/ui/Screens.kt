@@ -299,6 +299,10 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
 
     LaunchedEffect(Unit) {
         viewModel.checkAndSyncData(force = false)
+        while (true) {
+            delay(30000L)
+            viewModel.checkAndSyncData(force = true)
+        }
     }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -659,6 +663,10 @@ fun ProvidersScreen(navController: NavController, categoryId: String, viewModel:
 
     LaunchedEffect(Unit) {
         viewModel.checkAndSyncData(force = false)
+        while (true) {
+            delay(30000L)
+            viewModel.checkAndSyncData(force = true)
+        }
     }
 
     val currentCategory = remember(categories, categoryId) {
@@ -1161,6 +1169,10 @@ fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) 
 
     LaunchedEffect(Unit) {
         viewModel.checkAndSyncData(force = false)
+        while (true) {
+            delay(30000L)
+            viewModel.checkAndSyncData(force = true)
+        }
     }
 
     val tabs = if (isSuperAdmin) {
