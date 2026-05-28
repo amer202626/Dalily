@@ -14,6 +14,9 @@ interface CategoryDao {
     @Query("SELECT * FROM categories ORDER BY orderIndex ASC")
     fun getAllCategories(): Flow<List<Category>>
 
+    @Query("SELECT * FROM categories ORDER BY orderIndex ASC")
+    suspend fun getAllCategoriesDirect(): List<Category>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: Category)
 
@@ -31,6 +34,9 @@ interface CategoryDao {
 interface ServiceProviderDao {
     @Query("SELECT * FROM service_providers ORDER BY rating DESC, nameAr ASC")
     fun getAllServiceProviders(): Flow<List<ServiceProvider>>
+
+    @Query("SELECT * FROM service_providers ORDER BY rating DESC, nameAr ASC")
+    suspend fun getAllServiceProvidersDirect(): List<ServiceProvider>
 
     @Query("SELECT * FROM service_providers WHERE categoryId = :categoryId ORDER BY rating DESC, nameAr ASC")
     fun getProvidersByCategoryId(categoryId: String): Flow<List<ServiceProvider>>

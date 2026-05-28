@@ -24,7 +24,7 @@ class Repository(
     suspend fun syncWithSupabase() {
         // Step 1: Secure localized fallback seeding immediately for rapid UI rendering and total offline reliability
         try {
-            val localCats = categoryDao.getAllCategories().first()
+            val localCats = categoryDao.getAllCategoriesDirect()
             if (localCats.isEmpty()) {
                 Log.d(TAG, "Local database has no categories. Pre-seeding locally for instant boot...")
                 val defaultCategories = listOf(
@@ -48,7 +48,7 @@ class Repository(
         }
 
         try {
-            val localProviders = serviceProviderDao.getAllServiceProviders().first()
+            val localProviders = serviceProviderDao.getAllServiceProvidersDirect()
             if (localProviders.isEmpty()) {
                 Log.d(TAG, "Local database has no providers. Pre-seeding locally for instant boot...")
                 val defaultProviders = listOf(
@@ -74,7 +74,7 @@ class Repository(
                 Log.d(TAG, "Synced ${remoteCats.size} categories successfully from Supabase.")
             } else {
                 // Supabase is empty, publish current local database categories
-                val currentLocalCats = categoryDao.getAllCategories().first()
+                val currentLocalCats = categoryDao.getAllCategoriesDirect()
                 for (cat in currentLocalCats) {
                     try {
                         supabase.createCategory(cat)
@@ -96,7 +96,7 @@ class Repository(
                 Log.d(TAG, "Synced ${remoteProviders.size} service providers successfully from Supabase.")
             } else {
                 // Supabase is empty, publish current local database providers
-                val currentLocalProviders = serviceProviderDao.getAllServiceProviders().first()
+                val currentLocalProviders = serviceProviderDao.getAllServiceProvidersDirect()
                 for (prov in currentLocalProviders) {
                     try {
                         supabase.createServiceProvider(prov)
