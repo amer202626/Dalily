@@ -23,10 +23,14 @@ class Repository {
     private val _adminsFlow = MutableStateFlow<List<Admin>>(emptyList())
     val adminsFlow: StateFlow<List<Admin>> = _adminsFlow.asStateFlow()
 
+    private val _configFlow = MutableStateFlow<AppConfig>(AppConfig())
+    val configFlow: StateFlow<AppConfig> = _configFlow.asStateFlow()
+
     private var categoriesListener: ListenerRegistration? = null
     private var providersListener: ListenerRegistration? = null
     private var reviewsListener: ListenerRegistration? = null
     private var adminsListener: ListenerRegistration? = null
+    private var configListener: ListenerRegistration? = null
 
     init {
         startRealtimeListening()
@@ -34,6 +38,31 @@ class Repository {
 
     private fun startRealtimeListening() {
         Log.i(TAG, "Starting direct real-time Firestore listeners.")
+
+        // Listen for AppConfig
+        configListener = firestore.collection("app_config").document("settings")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Config snapshot listener failed: ${error.message}", error)
+                    return@addSnapshotListener
+                }
+                snapshot?.let { doc ->
+                    if (doc.exists()) {
+                        try {
+                            doc.toObject(AppConfig::class.java)?.let {
+                                _configFlow.value = it
+                                Log.d(TAG, "Realtime update: Loaded AppConfig with theme ${it.app_theme}")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to parse AppConfig document", e)
+                        }
+                    } else {
+                        // Create default config
+                        val defaultConfig = AppConfig()
+                        saveConfig(defaultConfig, {}, {})
+                    }
+                }
+            }
 
         // Listen for Categories
         categoriesListener = firestore.collection("categories")
@@ -217,10 +246,23 @@ class Repository {
             }
     }
 
+    fun saveConfig(config: AppConfig, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
+        firestore.collection("app_config").document("settings").set(config)
+            .addOnSuccessListener {
+                Log.d(TAG, "Config saved to Firestore.")
+                onSuccess()
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to save config to Firestore.", e)
+                onFailure(e)
+            }
+    }
+
     fun cleanup() {
         categoriesListener?.remove()
         providersListener?.remove()
         reviewsListener?.remove()
         adminsListener?.remove()
+        configListener?.remove()
     }
 }
