@@ -74,7 +74,7 @@ interface SupabaseService {
 }
 
 object SupabaseClient {
-    private const val BASE_URL = "https://sazbudkuzxbvmuztaxeg.supabase.co/"
+    private const val BASE_URL = "https://sazbudkzuxbvmuztaxeg.supabase.co/"
     private const val API_KEY = "sb_publishable_vvR8V-Y4Ge4-PMZa1AuFnQ_t9TJrwnx"
 
     private val okHttpClient = OkHttpClient.Builder()
