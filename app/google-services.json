@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "528069114123",
+    "project_id": "dalili-yemen-app",
+    "storage_bucket": "dalili-yemen-app.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:528069114123:android:05777bdc711f18fc7183ca",
+        "android_client_info": {
+          "package_name": "com.example"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB7BqR5zB8H5Q9L2oM3pN4qR5sT6uV7wX8yZ9"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
