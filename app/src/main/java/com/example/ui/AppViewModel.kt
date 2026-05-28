@@ -102,7 +102,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (force || (now - lastSync > 60 * 1000L)) {
                 isSyncing = true
                 try {
-                    repository.syncWithSupabase()
+                    repository.syncWithSupabase(settingsManager)
                     performSyncAdmins()
                     settingsManager.lastSyncTimestamp = System.currentTimeMillis()
                     onSuccess?.invoke()

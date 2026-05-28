@@ -4,6 +4,17 @@ import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import java.util.UUID
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import retrofit2.Response
+
+fun getCurrentTimeIso(): String {
+    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+    sdf.timeZone = TimeZone.getTimeZone("UTC")
+    return sdf.format(Date())
+}
 
 class Repository(
     private val categoryDao: CategoryDao,
@@ -21,7 +32,21 @@ class Repository(
         return serviceProviderDao.getProvidersByCategoryId(categoryId)
     }
 
-    suspend fun syncWithSupabase() {
+    suspend fun logSyncEvent(tableName: String, recordId: String, eventType: String) {
+        try {
+            val event = SyncEvent(
+                tableName = tableName,
+                recordId = recordId,
+                eventType = eventType
+            )
+            Log.d(TAG, "Publishing sync event to Supabase: table=$tableName, ID=$recordId, Type=$eventType")
+            supabase.createSyncEvent(event)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed logging sync_event to Supabase: ${e.message}")
+        }
+    }
+
+    suspend fun syncWithSupabase(settingsManager: SettingsManager) {
         // Step 1: Secure localized fallback seeding immediately for rapid UI rendering and total offline reliability
         try {
             val localCats = categoryDao.getAllCategoriesDirect()
@@ -64,49 +89,124 @@ class Repository(
             Log.e(TAG, "Fail-safe: Failed to seed local service providers: ${e.message}")
         }
 
-        // Step 2: Attempt remote fetch and synchronize with Supabase backend
-        try {
-            Log.d(TAG, "Connecting to Supabase to fetch remote categories...")
-            val remoteCats = supabase.getCategories()
-            if (remoteCats.isNotEmpty()) {
-                categoryDao.clearAll()
-                categoryDao.insertCategories(remoteCats)
-                Log.d(TAG, "Synced ${remoteCats.size} categories successfully from Supabase.")
-            } else {
-                // Supabase is empty, publish current local database categories
-                val currentLocalCats = categoryDao.getAllCategoriesDirect()
-                for (cat in currentLocalCats) {
-                    try {
-                        supabase.createCategory(cat)
-                    } catch (err: Exception) {
-                        Log.e(TAG, "Failed publishing category to Supabase: ${err.message}")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch from Supabase. Keeping current local database categories intact. Error: ${e.message}")
-        }
+        // Incremental / Event-driven sync system implementation:
+        val lastSyncTime = settingsManager.lastSyncTimeIso
+        val startTime = getCurrentTimeIso()
 
-        try {
-            Log.d(TAG, "Connecting to Supabase to fetch remote providers...")
-            val remoteProviders = supabase.getServiceProviders()
-            if (remoteProviders.isNotEmpty()) {
-                serviceProviderDao.clearAll()
-                serviceProviderDao.insertServiceProviders(remoteProviders)
-                Log.d(TAG, "Synced ${remoteProviders.size} service providers successfully from Supabase.")
-            } else {
-                // Supabase is empty, publish current local database providers
-                val currentLocalProviders = serviceProviderDao.getAllServiceProvidersDirect()
-                for (prov in currentLocalProviders) {
-                    try {
-                        supabase.createServiceProvider(prov)
-                    } catch (err: Exception) {
-                        Log.e(TAG, "Failed publishing provider to Supabase: ${err.message}")
+        if (lastSyncTime == "1970-01-01T00:00:00.000Z") {
+            // First ever sync: Do a complete full sync to align initial data state perfectly
+            try {
+                Log.d(TAG, "First sync: fetching complete categories list from Supabase...")
+                val remoteCats = supabase.getCategories()
+                if (remoteCats.isNotEmpty()) {
+                    categoryDao.clearAll()
+                    categoryDao.insertCategories(remoteCats)
+                } else {
+                    // Populate Supabase if empty
+                    val currentLocalCats = categoryDao.getAllCategoriesDirect()
+                    for (cat in currentLocalCats) {
+                        try { supabase.createCategory(cat) } catch (err: Exception) { err.printStackTrace() }
                     }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed full categories sync: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch from Supabase. Keeping current local database providers intact. Error: ${e.message}")
+
+            try {
+                Log.d(TAG, "First sync: fetching complete providers list from Supabase...")
+                val remoteProviders = supabase.getServiceProviders()
+                if (remoteProviders.isNotEmpty()) {
+                    serviceProviderDao.clearAll()
+                    serviceProviderDao.insertServiceProviders(remoteProviders)
+                } else {
+                    // Populate Supabase if empty
+                    val currentLocalProviders = serviceProviderDao.getAllServiceProvidersDirect()
+                    for (prov in currentLocalProviders) {
+                        try { supabase.createServiceProvider(prov) } catch (err: Exception) { err.printStackTrace() }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed full providers sync: ${e.message}")
+            }
+
+            // Set final lastSyncTime to start offset
+            settingsManager.lastSyncTimeIso = startTime
+            Log.d(TAG, "First full sync done. Set initial lastSyncTimeIso to $startTime")
+        } else {
+            // Incremental Event-Driven syncing: Ask for matching events since lastSyncTime (Step 3)
+            try {
+                Log.d(TAG, "Incremental sync: fetching events newer than $lastSyncTime...")
+                val events = supabase.getSyncEvents("gt.$lastSyncTime")
+                Log.d(TAG, "Found ${events.size} new sync events.")
+
+                if (events.isNotEmpty()) {
+                    for (event in events) {
+                        val tableName = event.tableName
+                        val recordId = event.recordId
+                        val eventType = event.eventType
+
+                        Log.d(TAG, "Processing Event: Table=$tableName, ID=$recordId, Type=$eventType")
+
+                        when (tableName) {
+                            "categories" -> {
+                                if (eventType == "DELETE") {
+                                    categoryDao.deleteCategoryById(recordId)
+                                } else {
+                                    // INSERT or UPDATE: fetch the actual category row
+                                    try {
+                                        val rows = supabase.getCategoryById("eq.$recordId")
+                                        if (rows.isNotEmpty()) {
+                                            categoryDao.insertCategory(rows[0])
+                                        } else {
+                                            // Row no longer exists
+                                            categoryDao.deleteCategoryById(recordId)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed pulling specific category $recordId: ${e.message}")
+                                    }
+                                }
+                            }
+                            "service_providers" -> {
+                                if (eventType == "DELETE") {
+                                    serviceProviderDao.deleteProviderById(recordId)
+                                } else {
+                                    // INSERT or UPDATE: fetch the actual provider row
+                                    try {
+                                        val rows = supabase.getServiceProviderById("eq.$recordId")
+                                        if (rows.isNotEmpty()) {
+                                            serviceProviderDao.insertServiceProvider(rows[0])
+                                        } else {
+                                            // Row no longer exists
+                                            serviceProviderDao.deleteProviderById(recordId)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed pulling specific provider $recordId: ${e.message}")
+                                    }
+                                }
+                            }
+                            "admins" -> {
+                                // For admins, sync is automatically re-run from the ViewModel if needed, or by getting all
+                            }
+                        }
+                    }
+
+                    // Update lastSyncTime to the created_at of the very last processed event (ensures sequence integrity)
+                    val lastEventCreatedAt = events.last().createdAt
+                    if (!lastEventCreatedAt.isNullOrBlank()) {
+                        settingsManager.lastSyncTimeIso = lastEventCreatedAt
+                        Log.d(TAG, "Updated lastSyncTimeIso to last event timestamp: $lastEventCreatedAt")
+                    } else {
+                        settingsManager.lastSyncTimeIso = startTime
+                        Log.d(TAG, "Updated lastSyncTimeIso to query startTime because last event has null timestamp: $startTime")
+                    }
+                } else {
+                    // Update lastSyncTime timestamp to query start time to prevent re-querying empty windows over and over
+                    settingsManager.lastSyncTimeIso = startTime
+                    Log.d(TAG, "No new events found. Advanced window lastSyncTimeIso to $startTime")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed incremental sync process: ${e.message}")
+            }
         }
     }
 
@@ -116,6 +216,8 @@ class Repository(
             val response = supabase.createCategory(category)
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response while saving category to Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("categories", category.id, "INSERT")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error saving category to Supabase: ${e.message}")
@@ -138,6 +240,8 @@ class Repository(
             val response = supabase.updateCategory("eq.$id", updates)
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response updating category in Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("categories", id, "UPDATE")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error updating category in Supabase: ${e.message}")
@@ -150,6 +254,8 @@ class Repository(
             val response = supabase.deleteCategory("eq.$id")
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response deleting category from Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("categories", id, "DELETE")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error deleting category from Supabase: ${e.message}")
@@ -162,6 +268,8 @@ class Repository(
             val response = supabase.createServiceProvider(provider)
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response saving provider to Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("service_providers", provider.id, "INSERT")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error saving provider to Supabase: ${e.message}")
@@ -193,6 +301,8 @@ class Repository(
             val response = supabase.updateServiceProvider("eq.$id", updates)
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response updating provider in Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("service_providers", id, "UPDATE")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error updating provider in Supabase: ${e.message}")
@@ -205,6 +315,8 @@ class Repository(
             val response = supabase.deleteServiceProvider("eq.$id")
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response deleting provider from Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("service_providers", id, "DELETE")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error deleting provider from Supabase: ${e.message}")
@@ -225,6 +337,8 @@ class Repository(
             val response = supabase.createAdmin(admin)
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response creating admin in Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("admins", admin.username, "INSERT")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error creating admin in Supabase: ${e.message}")
@@ -239,6 +353,8 @@ class Repository(
             val response = supabase.updateAdmin("eq.$username", updates)
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response updating admin password in Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("admins", username, "UPDATE")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error updating admin password in Supabase: ${e.message}")
@@ -250,6 +366,8 @@ class Repository(
             val response = supabase.deleteAdmin("eq.$username")
             if (!response.isSuccessful) {
                 Log.e(TAG, "Failed response deleting admin from Supabase: ${response.code()}")
+            } else {
+                logSyncEvent("admins", username, "DELETE")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error deleting admin from Supabase: ${e.message}")

@@ -78,3 +78,21 @@ data class Admin(
     val isActive: Boolean = true
 )
 
+@JsonClass(generateAdapter = true)
+data class SyncEvent(
+    @Json(name = "id")
+    val id: String = java.util.UUID.randomUUID().toString(),
+    
+    @Json(name = "table_name")
+    val tableName: String,
+    
+    @Json(name = "record_id")
+    val recordId: String,
+    
+    @Json(name = "event_type")
+    val eventType: String,
+    
+    @Json(name = "created_at")
+    val createdAt: String? = null
+)
+

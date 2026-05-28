@@ -71,6 +71,36 @@ interface SupabaseService {
     suspend fun deleteAdmin(
         @Query("username") usernameFilter: String
     ): Response<Unit>
+
+    // Sync Events and Single Resource Query API
+    @GET("rest/v1/sync_events")
+    suspend fun getSyncEvents(
+        @Query("created_at") createdAtFilter: String,
+        @Query("order") order: String = "created_at.asc"
+    ): List<SyncEvent>
+
+    @POST("rest/v1/sync_events")
+    suspend fun createSyncEvent(
+        @Body event: SyncEvent
+    ): Response<Unit>
+
+    @GET("rest/v1/categories")
+    suspend fun getCategoryById(
+        @Query("id") idFilter: String,
+        @Query("select") select: String = "*"
+    ): List<Category>
+
+    @GET("rest/v1/service_providers")
+    suspend fun getServiceProviderById(
+        @Query("id") idFilter: String,
+        @Query("select") select: String = "*"
+    ): List<ServiceProvider>
+
+    @GET("rest/v1/admins")
+    suspend fun getAdminByUsername(
+        @Query("username") usernameFilter: String,
+        @Query("select") select: String = "*"
+    ): List<Admin>
 }
 
 object SupabaseClient {

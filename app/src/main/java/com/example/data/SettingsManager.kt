@@ -93,6 +93,10 @@ class SettingsManager(context: Context) {
         get() = prefs.getLong(KEY_LAST_SYNC_TIMESTAMP, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_SYNC_TIMESTAMP, value).apply()
 
+    var lastSyncTimeIso: String
+        get() = prefs.getString("last_sync_time_iso", "1970-01-01T00:00:00.000Z") ?: "1970-01-01T00:00:00.000Z"
+        set(value) = prefs.edit().putString("last_sync_time_iso", value).apply()
+
     fun saveAdminsLocal(admins: List<Admin>) {
         val encoded = admins.joinToString(";") { "${it.id}||${it.username}||${it.passwordHash}||${it.role}||${it.isActive}" }
         prefs.edit().putString("cached_admins_list", encoded).apply()
