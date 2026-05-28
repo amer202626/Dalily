@@ -48,6 +48,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var defaultLanguage by mutableStateOf(settingsManager.defaultLanguage)
         private set
 
+    var welcomeMessageAr by mutableStateOf(settingsManager.welcomeMessageAr)
+        private set
+
+    var welcomeMessageEn by mutableStateOf(settingsManager.welcomeMessageEn)
+        private set
+
+    var showWelcomeMessageInsteadOfLogo by mutableStateOf(settingsManager.showWelcomeMessageInsteadOfLogo)
+        private set
+
+    var customWelcomeLogoUrl by mutableStateOf(settingsManager.customWelcomeLogoUrl)
+        private set
+
+    var geminiApiKeySetting by mutableStateOf(settingsManager.geminiApiKeySetting)
+        private set
+
     var remoteAdmins by mutableStateOf<List<Admin>>(emptyList())
         private set
 
@@ -132,7 +147,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val configRecord = fetched.find { it.username == "app_config" }
             if (configRecord != null) {
                 val data = configRecord.passwordHash
-                if (data.startsWith("CONFIG_V1||")) {
+                if (data.startsWith("CONFIG_V2||")) {
+                    val parts = data.split("||")
+                    if (parts.size >= 14) {
+                        appNameAr = parts[1]
+                        settingsManager.appNameAr = parts[1]
+                        appNameEn = parts[2]
+                        settingsManager.appNameEn = parts[2]
+                        primaryColorHex = parts[3]
+                        settingsManager.primaryColor = parts[3]
+                        secondaryColorHex = parts[4]
+                        settingsManager.secondaryColor = parts[4]
+                        iconLetterAr = parts[5]
+                        settingsManager.iconLetterAr = parts[5]
+                        iconLetterEn = parts[6]
+                        settingsManager.iconLetterEn = parts[6]
+                        footerText = parts[7]
+                        settingsManager.footerText = parts[7]
+                        defaultLanguage = parts[8]
+                        settingsManager.defaultLanguage = parts[8]
+                        
+                        welcomeMessageAr = parts[9]
+                        settingsManager.welcomeMessageAr = parts[9]
+                        welcomeMessageEn = parts[10]
+                        settingsManager.welcomeMessageEn = parts[10]
+                        val showInstead = parts[11].toBoolean()
+                        showWelcomeMessageInsteadOfLogo = showInstead
+                        settingsManager.showWelcomeMessageInsteadOfLogo = showInstead
+                        customWelcomeLogoUrl = parts[12]
+                        settingsManager.customWelcomeLogoUrl = parts[12]
+                        geminiApiKeySetting = parts[13]
+                        settingsManager.geminiApiKeySetting = parts[13]
+                    }
+                } else if (data.startsWith("CONFIG_V1||")) {
                     val parts = data.split("||")
                     if (parts.size >= 9) {
                         appNameAr = parts[1]
@@ -213,7 +260,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         iconAr: String,
         iconEn: String,
         footer: String,
-        defLang: String
+        defLang: String,
+        welcomeAr: String = "كل الخدمات في تطبيق واحد",
+        welcomeEn: String = "All services in one app",
+        showInstead: Boolean = false,
+        logoUrl: String = "",
+        gKey: String = ""
     ) {
         appNameAr = arName
         settingsManager.appNameAr = arName
@@ -239,10 +291,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         defaultLanguage = defLang
         settingsManager.defaultLanguage = defLang
 
+        welcomeMessageAr = welcomeAr
+        settingsManager.welcomeMessageAr = welcomeAr
+
+        welcomeMessageEn = welcomeEn
+        settingsManager.welcomeMessageEn = welcomeEn
+
+        showWelcomeMessageInsteadOfLogo = showInstead
+        settingsManager.showWelcomeMessageInsteadOfLogo = showInstead
+
+        customWelcomeLogoUrl = logoUrl
+        settingsManager.customWelcomeLogoUrl = logoUrl
+
+        geminiApiKeySetting = gKey
+        settingsManager.geminiApiKeySetting = gKey
+
         // Save to remote Supabase database so it syncs with all other active device clients!
         viewModelScope.launch {
             try {
-                val configData = "CONFIG_V1||$arName||$enName||$pColor||$sColor||$iconAr||$iconEn||$footer||$defLang"
+                val configData = "CONFIG_V2||$arName||$enName||$pColor||$sColor||$iconAr||$iconEn||$footer||$defLang||$welcomeAr||$welcomeEn||$showInstead||$logoUrl||$gKey"
                 val response = repository.getAdmins()
                 val existing = response.find { it.username == "app_config" }
                 if (existing != null) {

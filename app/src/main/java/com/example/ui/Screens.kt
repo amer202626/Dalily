@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -46,6 +47,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.data.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 // Helper to Safely Parse Hex Colors
@@ -84,8 +86,12 @@ fun SplashScreen(navController: NavController, viewModel: AppViewModel) {
     val secondaryColor = parseColor(viewModel.secondaryColorHex, Color(0xFFFB8C00))
     val isArabic = viewModel.currentLanguage == "ar"
 
+    val welcomeMsg = if (isArabic) viewModel.welcomeMessageAr else viewModel.welcomeMessageEn
+    val showWelcomeInstead = viewModel.showWelcomeMessageInsteadOfLogo
+    val customLogoUrl = viewModel.customWelcomeLogoUrl
+
     LaunchedEffect(Unit) {
-        delay(2000)
+        delay(2500)
         navController.navigate("home") {
             popUpTo("splash") { inclusive = true }
         }
@@ -99,34 +105,100 @@ fun SplashScreen(navController: NavController, viewModel: AppViewModel) {
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(24.dp)
         ) {
-            // App adaptive mockup icon
-            Box(
-                modifier = Modifier
-                    .size(160.dp)
-                    .clip(CircleShape)
-                    .background(primaryColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = if (isArabic) viewModel.iconLetterAr else viewModel.iconLetterEn,
-                        color = Color.White,
-                        fontSize = 72.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = if (isArabic) "دليلي" else "Dalili",
-                        color = secondaryColor,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+            if (showWelcomeInstead) {
+                // --- CUSTOM GREETING MESSAGE LAYOUT ---
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = primaryColor,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = welcomeMsg,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0F172A),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 34.sp
+                        )
+                    }
+                }
+            } else {
+                // --- PREMIUM LOGO IMAGE / BLACK BADGE LAYOUT ---
+                if (!customLogoUrl.isBlank()) {
+                    // Customizable remote image
+                    Card(
+                        modifier = Modifier
+                            .size(160.dp)
+                            .testTag("custom_splash_logo_card"),
+                        shape = CircleShape,
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        AsyncImage(
+                            model = customLogoUrl,
+                            contentDescription = "Custom Logo",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                } else {
+                    // Modern black circular badge with white text
+                    Box(
+                        modifier = Modifier
+                            .size(160.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF111827)) // Rich Black Icon Background
+                            .testTag("default_black_logo_badge"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            val logoText = if (isArabic) viewModel.iconLetterAr else viewModel.iconLetterEn
+                            // Dynamic font sizing bounds to fit words like "خدمات" beautifully inside the circle
+                            val fontSizeVal = if (logoText.length > 2) 28.sp else 72.sp
+                            Text(
+                                text = logoText,
+                                color = Color.White,
+                                fontSize = fontSizeVal,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isArabic) "دليلي" else "Dalili",
+                                color = secondaryColor,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
+            // Main App Header Label
             Text(
                 text = if (isArabic) viewModel.appNameAr else viewModel.appNameEn,
                 fontSize = 28.sp,
@@ -136,11 +208,13 @@ fun SplashScreen(navController: NavController, viewModel: AppViewModel) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Subtitle Static / Default message
             Text(
-                text = Translator.getString("subtitle", viewModel.currentLanguage),
-                fontSize = 16.sp,
+                text = if (isArabic) "كل الخدمات في تطبيق واحد" else "All services in one app",
+                fontSize = 15.sp,
                 color = Color.Gray,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center
             )
         }
     }
@@ -155,6 +229,7 @@ fun MainLayout(
     showBackButton: Boolean = false,
     titleContent: @Composable () -> Unit,
     actionsContent: @Composable RowScope.() -> Unit = {},
+    floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
     val primaryColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))
@@ -173,7 +248,7 @@ fun MainLayout(
                                     imageVector = if (isArabic) Icons.Default.ArrowForward else Icons.Default.ArrowBack,
                                     contentDescription = "Back",
                                     tint = Color.White
-                                )
+                               )
                             }
                         }
                     },
@@ -185,6 +260,7 @@ fun MainLayout(
                     )
                 )
             },
+            floatingActionButton = floatingActionButton,
             bottomBar = {
                 // Centered small grey footer text as per requirement
                 Box(
@@ -223,6 +299,7 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showBackdoorDialog by remember { mutableStateOf(false) }
     var showLoginDialog by remember { mutableStateOf(false) }
+    var showAiDialog by remember { mutableStateOf(false) }
 
     // Tap counter for secret backdoor portal
     var secretTaps by remember { mutableStateOf(0) }
@@ -317,6 +394,30 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
                     tint = if (viewModel.loggedInUser != null) secondaryColor else Color.White
                 )
             }
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { showAiDialog = true },
+                containerColor = Color(0xFF111827), // Deep black background
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier
+                    .size(68.dp)
+                    .testTag("ai_floating_button")
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("🤖", fontSize = 16.sp)
+                    Text(
+                        text = if (isArabic) "خدمات" else "Services",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
         }
     ) { innerPadding ->
         Column(
@@ -404,6 +505,14 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
                 viewModel = viewModel,
                 navController = navController,
                 onDismiss = { showLoginDialog = false }
+            )
+        }
+
+        // --- DALILI AI CHAT ASSISTANT ---
+        if (showAiDialog) {
+            DaliliAiAssistantDialog(
+                viewModel = viewModel,
+                onDismiss = { showAiDialog = false }
             )
         }
     }
@@ -1497,6 +1606,12 @@ fun DashboardBrandingTab(viewModel: AppViewModel) {
     var footerTextVal by remember { mutableStateOf(viewModel.footerText) }
     var defaultLangVal by remember { mutableStateOf(viewModel.defaultLanguage) }
 
+    var welcomeMsgAr by remember { mutableStateOf(viewModel.welcomeMessageAr) }
+    var welcomeMsgEn by remember { mutableStateOf(viewModel.welcomeMessageEn) }
+    var showInsteadOfLogo by remember { mutableStateOf(viewModel.showWelcomeMessageInsteadOfLogo) }
+    var customLogoUrlVal by remember { mutableStateOf(viewModel.customWelcomeLogoUrl) }
+    var geminiKeyVal by remember { mutableStateOf(viewModel.geminiApiKeySetting) }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1577,6 +1692,83 @@ fun DashboardBrandingTab(viewModel: AppViewModel) {
             )
         }
 
+        // Customizable Welcome messages & Welcome Image / Logo override
+        item {
+            HorizontalDivider(color = Color(0xFFE2E8F0), modifier = Modifier.padding(vertical = 4.dp))
+            Text(
+                text = if (isArabic) "إعدادات رسالة الترحيب والواجهة" else "Welcome & Alternative Greeting Settings",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = parseColor(pColorHex, Color(0xFF1E88E5))
+            )
+        }
+
+        item {
+            OutlinedTextField(
+                value = welcomeMsgAr,
+                onValueChange = { welcomeMsgAr = it },
+                label = { Text(if (isArabic) "رسالة الترحيب البديلة (عربي)" else "Alternative Welcome Message (AR)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            OutlinedTextField(
+                value = welcomeMsgEn,
+                onValueChange = { welcomeMsgEn = it },
+                label = { Text(if (isArabic) "رسالة الترحيب البديلة (إنجليزي)" else "Alternative Welcome Message (EN)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Checkbox(
+                    checked = showInsteadOfLogo,
+                    onCheckedChange = { showInsteadOfLogo = it }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isArabic) "إظهار رسالة الترحيب كبديل للأيقونة في شاشة البداية" else "Show welcome message instead of logo icon on splash",
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        item {
+            OutlinedTextField(
+                value = customLogoUrlVal,
+                onValueChange = { customLogoUrlVal = it },
+                label = { Text(if (isArabic) "رابط شارة/شعار مخصص (custom_logo_url)" else "Overwriting Image Logo URL") },
+                placeholder = { Text("https://example.com/logo.png") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        // Gemini AI control configuration API Key
+        item {
+            HorizontalDivider(color = Color(0xFFE2E8F0), modifier = Modifier.padding(vertical = 4.dp))
+            Text(
+                text = if (isArabic) "إعدادات الذكاء الاصطناعي (Gemini AI)" else "Gemini Artificial Intelligence Key",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = parseColor(pColorHex, Color(0xFF1E88E5))
+            )
+        }
+
+        item {
+            OutlinedTextField(
+                value = geminiKeyVal,
+                onValueChange = { geminiKeyVal = it },
+                label = { Text(if (isArabic) "مفتاح Gemini API Key مخصص" else "Custom Gemini API Key") },
+                placeholder = { Text("AIzaSy...") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         // Default language config
         item {
             Text(if (isArabic) "اللغة الافتراضية للتطبيق:" else "Default Startup Language:", fontWeight = FontWeight.Bold)
@@ -1607,7 +1799,12 @@ fun DashboardBrandingTab(viewModel: AppViewModel) {
                         iconAr = arLetter,
                         iconEn = enLetter,
                         footer = footerTextVal,
-                        defLang = defaultLangVal
+                        defLang = defaultLangVal,
+                        welcomeAr = welcomeMsgAr,
+                        welcomeEn = welcomeMsgEn,
+                        showInstead = showInsteadOfLogo,
+                        logoUrl = customLogoUrlVal,
+                        gKey = geminiKeyVal
                     )
                     Toast.makeText(context, if (isArabic) "تم حفظ التعديلات بنجاح!" else "Branding options updated!", Toast.LENGTH_SHORT).show()
                 },
@@ -1947,3 +2144,377 @@ fun saveImageToInternalStorage(context: Context, uri: Uri): String? {
         null
     }
 }
+
+// Chat message model
+data class ChatMessage(val text: String, val isUser: Boolean)
+
+@Composable
+fun DaliliAiAssistantDialog(
+    viewModel: AppViewModel,
+    onDismiss: () -> Unit
+) {
+    val categories by viewModel.categoriesList.collectAsStateWithLifecycle()
+    val providers by viewModel.serviceProvidersList.collectAsStateWithLifecycle()
+    val isArabic = viewModel.currentLanguage == "ar"
+    val scope = rememberCoroutineScope()
+    val primaryColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))
+    val secondaryColor = parseColor(viewModel.secondaryColorHex, Color(0xFFFB8C00))
+
+    val chatMessages = remember {
+        mutableStateListOf<ChatMessage>().apply {
+            add(
+                ChatMessage(
+                    if (isArabic) 
+                        "مرحباً بك! أنا مساعدك الذكي 🤖. كيف يمكنني مساعدتك اليوم في البحث عن الخدمات أو الهواتف في تطبيق دليلي؟"
+                    else 
+                        "Hello! I am your AI Assistant 🤖. How can I help you search for service providers or phone numbers today in Dalili?",
+                    isUser = false
+                )
+            )
+        }
+    }
+
+    var textInput by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    // Key selection logic: prioritizes admin's custom key, fallbacks to BuildConfig
+    val apiKey = remember(viewModel.geminiApiKeySetting) {
+        val customKey = viewModel.geminiApiKeySetting.trim()
+        if (customKey.isNotEmpty()) customKey else com.example.BuildConfig.GEMINI_API_KEY
+    }
+
+    val missingKeyError = if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+        if (isArabic) 
+            "عذرًا! لم يقم مدير التطبيق بمفتاح الذكاء الاصطناعي الخاص بـ Gemini API حتى الآن. الرجاء تهيئته من 'لوحة التحكم -> الهوية'."
+        else 
+            "Sorry! The Gemini API key hasn't been configured by the admin yet. Please set it in 'Dashboard -> Brand'."
+    } else null
+
+    LaunchedEffect(chatMessages.size) {
+        if (chatMessages.size > 0) {
+            listState.animateScrollToItem(chatMessages.size - 1)
+        }
+    }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+                .padding(top = 28.dp),
+            color = Color.White
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header of AI assistant
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(primaryColor)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🤖", fontSize = 20.sp)
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isArabic) "مساعد دليلي الذكي" else "Dalili AI Assistant",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp
+                        )
+                        Text(
+                            text = if (isArabic) "مستشارك المحلي المتكامل" else "Your smart local scout assistant",
+                            color = Color.White.copy(alpha = 0.82f),
+                            fontSize = 11.sp
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Dialog",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                // Chat message canvas list
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(chatMessages) { msg ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (msg.isUser) Arrangement.End else Arrangement.Start
+                        ) {
+                            if (!msg.isUser) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(secondaryColor.copy(alpha = 0.15f))
+                                        .align(Alignment.Top),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("🤖", fontSize = 14.sp)
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+                            
+                            Card(
+                                shape = RoundedCornerShape(
+                                    topStart = 16.dp,
+                                    topEnd = 16.dp,
+                                    bottomStart = if (msg.isUser) 16.dp else 4.dp,
+                                    bottomEnd = if (msg.isUser) 4.dp else 16.dp
+                                ),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (msg.isUser) primaryColor else Color(0xFFF1F5F9)
+                                ),
+                                modifier = Modifier.widthIn(max = 280.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                            ) {
+                                Text(
+                                    text = msg.text,
+                                    color = if (msg.isUser) Color.White else Color(0xFF1E293B),
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(12.dp),
+                                    lineHeight = 20.sp
+                                )
+                            }
+                        }
+                    }
+
+                    if (isLoading) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Start,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(secondaryColor.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("🤖", fontSize = 14.sp)
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Card(
+                                    shape = RoundedCornerShape(topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F5F9)),
+                                    modifier = Modifier.widthIn(max = 120.dp)
+                                ) {
+                                    Text(
+                                        text = if (isArabic) "يكتب الآن..." else "Typing...",
+                                        color = Color.Gray,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (missingKeyError != null) {
+                        item {
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = missingKeyError,
+                                    color = Color(0xFF991B1B),
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(12.dp),
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Interactive recommendation chips
+                if (chatMessages.size == 1 && missingKeyError == null) {
+                    val promptChips = if (isArabic) {
+                        listOf(
+                            "هل يوجد كهربائي ممتاز؟",
+                            "ما هي أقسام الخدمات المتاحة؟",
+                            "ابحث لي عن هاتف نجار"
+                        )
+                    } else {
+                        listOf(
+                            "Is there any electrician?",
+                            "List current categories",
+                            "Explain how to use this app"
+                        )
+                    }
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(promptChips) { chipText ->
+                            Card(
+                                modifier = Modifier.clickable {
+                                    textInput = chipText
+                                },
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFAED)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, secondaryColor.copy(alpha = 0.35f))
+                            ) {
+                                Text(
+                                    text = chipText,
+                                    fontSize = 12.sp,
+                                    color = secondaryColor,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Divider and input panel bar
+                HorizontalDivider(color = Color(0xFFE2E8F0))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = textInput,
+                        onValueChange = { textInput = it },
+                        placeholder = { 
+                            Text(if (isArabic) "اسأل المساعد الذكي عن خدمات دليلي..." else "Ask AI assistant about Dalili services...") 
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("ai_input_field"),
+                        singleLine = false,
+                        maxLines = 3,
+                        enabled = (missingKeyError == null && !isLoading),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = primaryColor,
+                            cursorColor = primaryColor
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = {
+                            val userMsg = textInput.trim()
+                            if (userMsg.isNotEmpty()) {
+                                textInput = ""
+                                chatMessages.add(ChatMessage(userMsg, isUser = true))
+                                isLoading = true
+
+                                scope.launch {
+                                    val conversationContext = chatMessages.joinToString("\n") { 
+                                        if (it.isUser) "User: ${it.text}" else "AI Assistant: ${it.text}"
+                                    }
+                                    val systemInstructionBuilt = buildSystemInstruction(categories, providers, isArabic)
+                                    val aiResponse = com.example.data.GeminiApi.generateContent(
+                                        prompt = conversationContext,
+                                        systemInstruction = systemInstructionBuilt,
+                                        apiKey = apiKey
+                                    )
+                                    
+                                    isLoading = false
+                                    if (aiResponse == "API_KEY_MISSING") {
+                                        chatMessages.add(
+                                            ChatMessage(
+                                                if (isArabic) 
+                                                    "لم يتم تكوين مفتاح Gemini API بشكل صحيح. الرجاء التحقق من الإعدادات."
+                                                else 
+                                                    "API Key is missing or default. Please configure a valid key.",
+                                                isUser = false
+                                            )
+                                        )
+                                    } else {
+                                        chatMessages.add(ChatMessage(aiResponse, isUser = false))
+                                    }
+                                }
+                            }
+                        },
+                        enabled = (textInput.isNotBlank() && missingKeyError == null && !isLoading),
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (textInput.isBlank() || missingKeyError != null || isLoading) Color(0xFFCBD5E1) else primaryColor)
+                            .testTag("ai_send_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = "Send Message",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// System Instructions builder injected with database parameters dynamically!
+fun buildSystemInstruction(categories: List<Category>, providers: List<ServiceProvider>, isArabic: Boolean): String {
+    val categoryListStr = categories.joinToString("\n- ") { 
+        if (isArabic) "${it.nameAr} (الرمز: ${it.id})" else "${it.nameEn} (ID: ${it.id})"
+    }
+    val providerListStr = providers.joinToString("\n- ") {
+        val cat = categories.find { c -> c.id == it.categoryId }
+        val catName = if (cat != null) {
+            if (isArabic) cat.nameAr else cat.nameEn
+        } else "منوع"
+        if (isArabic) {
+            "${it.nameAr} - الهاتف: ${it.phone} - القسم: $catName (التقييم: ${it.rating})"
+        } else {
+            "${it.nameEn} - Phone: ${it.phone} - Category: $catName (Rating: ${it.rating})"
+        }
+    }
+
+    return """
+        أنت "مساعد دليلي الذكي" 🤖، الدليل المحلي الذكي الوحيد والمستشار المتكامل لتطبيق "دليلي" (Dalili اليمن).
+        مهمتك الأساسية هي الإجابة بوجه بشوش، محترم، ولهجة يمنية لطيفة ومحببة (أو لغة عربية فصحى مبسطة) على أسئلة المستخدمين ومساعدتهم في العثور على مقدمي الخدمات المناسبين في اليمن.
+        
+        إليك قائمة الأقسام الحالية المتوفرة في التطبيق بشكل حي ومباشر:
+        - $categoryListStr
+        
+        وإليك قائمة مقدمي الخدمات الفعليين المتوفرين في قاعدة بياناتنا:
+        - $providerListStr
+        
+        تعليمات هامة:
+        1. شجع المستخدم واقترح عليه مقدمي الخدمات الفعليين المتوفرين في القائمة أعلاه فقط عندما يسألك عن خدمة معينة! واذكر لهم رقم الهاتف والتقييم وقسم الخدمة بوضوح!
+        2. إذا لم يكن هناك مقدم الخدمة المطلوب متوفراً في قائمتنا الحالية، فاعتذر بلطف وأخبرهم أنك ستنقل اقتراحهم للإدارة لإضافته قريباً، ولكن اقترح عليهم أقرب قسم أو ممثل بديل في القائمة إن وجد.
+        3. تحدث بروح يمنية دافئة ولطيفة (مثلاً استخدم كلمات ترحيبية يمنية مثل: "أهلاً وسهلاً بك يا غالي"، "على راسي"، "من عيوني").
+        4. إذا سألوا عن معلومات عامة عن مناطق ومدن اليمن أو كيفية استخدام التطبيق، أجبهم بذكاء ودقة واحترافية.
+        
+        احرص دائماً أن تكون إجابتك مختصرة وواضحة لكي تسع شاشة الهاتف الذكي بشكل مريح وسهل القراءة.
+    """.trimIndent()
+}
+

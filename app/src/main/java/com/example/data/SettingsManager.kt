@@ -17,6 +17,11 @@ class SettingsManager(context: Context) {
         private const val KEY_FOOTER_TEXT = "footer_text"
         private const val KEY_DEFAULT_LANGUAGE = "default_language"
         private const val KEY_CURRENT_USER = "current_user"
+        private const val KEY_WELCOME_MESSAGE_AR = "welcome_message_ar"
+        private const val KEY_WELCOME_MESSAGE_EN = "welcome_message_en"
+        private const val KEY_SHOW_WELCOME_MSG_INSTEAD_OF_LOGO = "show_welcome_msg_instead_logo"
+        private const val KEY_CUSTOM_WELCOME_LOGO_URL = "custom_welcome_logo_url"
+        private const val KEY_GEMINI_API_KEY = "gemini_api_key"
     }
 
     var language: String
@@ -40,11 +45,11 @@ class SettingsManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_SECONDARY_COLOR, value).apply()
 
     var iconLetterAr: String
-        get() = prefs.getString(KEY_ICON_LETTER_AR, "د") ?: "د"
+        get() = prefs.getString(KEY_ICON_LETTER_AR, "خدمات") ?: "خدمات"
         set(value) = prefs.edit().putString(KEY_ICON_LETTER_AR, value).apply()
 
     var iconLetterEn: String
-        get() = prefs.getString(KEY_ICON_LETTER_EN, "D") ?: "D"
+        get() = prefs.getString(KEY_ICON_LETTER_EN, "Services") ?: "Services"
         set(value) = prefs.edit().putString(KEY_ICON_LETTER_EN, value).apply()
 
     var footerText: String
@@ -54,6 +59,26 @@ class SettingsManager(context: Context) {
     var defaultLanguage: String
         get() = prefs.getString(KEY_DEFAULT_LANGUAGE, "ar") ?: "ar"
         set(value) = prefs.edit().putString(KEY_DEFAULT_LANGUAGE, value).apply()
+
+    var welcomeMessageAr: String
+        get() = prefs.getString(KEY_WELCOME_MESSAGE_AR, "كل الخدمات في تطبيق واحد") ?: "كل الخدمات في تطبيق واحد"
+        set(value) = prefs.edit().putString(KEY_WELCOME_MESSAGE_AR, value).apply()
+
+    var welcomeMessageEn: String
+        get() = prefs.getString(KEY_WELCOME_MESSAGE_EN, "All services in one app") ?: "All services in one app"
+        set(value) = prefs.edit().putString(KEY_WELCOME_MESSAGE_EN, value).apply()
+
+    var showWelcomeMessageInsteadOfLogo: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_WELCOME_MSG_INSTEAD_OF_LOGO, false)
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_WELCOME_MSG_INSTEAD_OF_LOGO, value).apply()
+
+    var customWelcomeLogoUrl: String
+        get() = prefs.getString(KEY_CUSTOM_WELCOME_LOGO_URL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_CUSTOM_WELCOME_LOGO_URL, value).apply()
+
+    var geminiApiKeySetting: String
+        get() = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_GEMINI_API_KEY, value).apply()
 
     var currentUser: String?
         get() = prefs.getString(KEY_CURRENT_USER, null)
