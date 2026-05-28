@@ -91,12 +91,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList()
         )
 
+    var isSyncing by mutableStateOf(false)
+        private set
+
+    fun checkAndSyncData(force: Boolean = false, onSuccess: (() -> Unit)? = null, onFailure: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            if (isSyncing) return@launch
+            val lastSync = settingsManager.lastSyncTimestamp
+            val now = System.currentTimeMillis()
+            if (force || (now - lastSync > 60 * 1000L)) {
+                isSyncing = true
+                try {
+                    repository.syncWithSupabase()
+                    performSyncAdmins()
+                    settingsManager.lastSyncTimestamp = System.currentTimeMillis()
+                    onSuccess?.invoke()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    onFailure?.invoke(e.localizedMessage ?: "Synchronization failed")
+                } finally {
+                    isSyncing = false
+                }
+            } else {
+                onSuccess?.invoke()
+            }
+        }
+    }
+
     init {
         // Trigger background initial internet sync
-        viewModelScope.launch {
-            repository.syncWithSupabase()
-            syncAdmins()
-        }
+        checkAndSyncData(force = false)
     }
 
     fun syncAdmins() {

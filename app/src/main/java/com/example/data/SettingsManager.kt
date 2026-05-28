@@ -22,6 +22,7 @@ class SettingsManager(context: Context) {
         private const val KEY_SHOW_WELCOME_MSG_INSTEAD_OF_LOGO = "show_welcome_msg_instead_logo"
         private const val KEY_CUSTOM_WELCOME_LOGO_URL = "custom_welcome_logo_url"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
+        private const val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
     }
 
     var language: String
@@ -87,6 +88,10 @@ class SettingsManager(context: Context) {
     var adminPasswordOverride: String?
         get() = prefs.getString("admin_password_override", null)
         set(value) = prefs.edit().putString("admin_password_override", value).apply()
+
+    var lastSyncTimestamp: Long
+        get() = prefs.getLong(KEY_LAST_SYNC_TIMESTAMP, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_SYNC_TIMESTAMP, value).apply()
 
     fun saveAdminsLocal(admins: List<Admin>) {
         val encoded = admins.joinToString(";") { "${it.id}||${it.username}||${it.passwordHash}||${it.role}||${it.isActive}" }

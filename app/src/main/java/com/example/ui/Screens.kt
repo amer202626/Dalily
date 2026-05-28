@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -285,6 +286,7 @@ fun MainLayout(
 }
 
 // Primary Home Directory Screen
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
     val context = LocalContext.current
@@ -294,6 +296,10 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
     val primaryColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))
     val secondaryColor = parseColor(viewModel.secondaryColorHex, Color(0xFFFB8C00))
     val isArabic = viewModel.currentLanguage == "ar"
+
+    LaunchedEffect(Unit) {
+        viewModel.checkAndSyncData(force = false)
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -358,6 +364,23 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
             }
         },
         actionsContent = {
+            // Manual sync button 🔄
+            IconButton(
+                onClick = {
+                    viewModel.checkAndSyncData(force = true, onSuccess = {
+                        Toast.makeText(context, if (isArabic) "تم تحديث البيانات بنجاح!" else "Data synced successfully!", Toast.LENGTH_SHORT).show()
+                    }, onFailure = { error ->
+                        Toast.makeText(context, if (isArabic) "فشل التحديث: $error" else "Sync failed: $error", Toast.LENGTH_SHORT).show()
+                    })
+                },
+                modifier = Modifier.testTag("manual_sync_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Manual sync data"
+                )
+            }
+
             // Search toggle icon
             IconButton(
                 onClick = {
@@ -447,41 +470,48 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Categories Grid Layout
-            if (filteredCategories.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (isArabic) "لا توجد أقسام متطابقة" else "No matching categories",
-                        color = Color.Gray,
-                        fontSize = 16.sp
-                    )
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
-                    contentPadding = PaddingValues(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(filteredCategories) { category ->
-                        CategoryCard(
-                            category = category,
-                            primaryColor = primaryColor,
-                            secondaryColor = secondaryColor,
-                            language = viewModel.currentLanguage,
-                            onClick = {
-                                navController.navigate("providers/${category.id}")
-                            }
+            // Categories Grid Layout with Pull to Refresh box
+            PullToRefreshBox(
+                isRefreshing = viewModel.isSyncing,
+                onRefresh = {
+                    viewModel.checkAndSyncData(force = true)
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                if (filteredCategories.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isArabic) "لا توجد أقسام متطابقة" else "No matching categories",
+                            color = Color.Gray,
+                            fontSize = 16.sp
                         )
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp),
+                        contentPadding = PaddingValues(bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(filteredCategories) { category ->
+                            CategoryCard(
+                                category = category,
+                                primaryColor = primaryColor,
+                                secondaryColor = secondaryColor,
+                                language = viewModel.currentLanguage,
+                                onClick = {
+                                    navController.navigate("providers/${category.id}")
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -617,6 +647,7 @@ fun CategoryCard(
 }
 
 // Category Service Providers Listing Directory
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProvidersScreen(navController: NavController, categoryId: String, viewModel: AppViewModel) {
     val context = LocalContext.current
@@ -625,6 +656,10 @@ fun ProvidersScreen(navController: NavController, categoryId: String, viewModel:
 
     val primaryColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))
     val isArabic = viewModel.currentLanguage == "ar"
+
+    LaunchedEffect(Unit) {
+        viewModel.checkAndSyncData(force = false)
+    }
 
     val currentCategory = remember(categories, categoryId) {
         categories.find { it.id == categoryId }
@@ -648,13 +683,33 @@ fun ProvidersScreen(navController: NavController, categoryId: String, viewModel:
             Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         },
         actionsContent = {
+            // Manual sync button 🔄
+            IconButton(
+                onClick = {
+                    viewModel.checkAndSyncData(force = true, onSuccess = {
+                        Toast.makeText(context, if (isArabic) "تم تحديث البيانات بنجاح!" else "Data synced successfully!", Toast.LENGTH_SHORT).show()
+                    }, onFailure = { error ->
+                        Toast.makeText(context, if (isArabic) "فشل التحديث: $error" else "Sync failed: $error", Toast.LENGTH_SHORT).show()
+                    })
+                },
+                modifier = Modifier.testTag("manual_sync_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Manual sync data"
+                )
+            }
             // Language Select
             IconButton(onClick = { viewModel.toggleLanguage() }) {
                 Icon(Icons.Default.Language, "Toggle Language")
             }
         }
     ) { innerPadding ->
-        Box(
+        PullToRefreshBox(
+            isRefreshing = viewModel.isSyncing,
+            onRefresh = {
+                viewModel.checkAndSyncData(force = true)
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
@@ -1092,8 +1147,10 @@ fun ProfileOrLoginDialog(
 // =========================================================================================
 // OWNER BACKDOOR CMS DASHBOARD SCREEN
 // =========================================================================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) {
+    val context = LocalContext.current
     val categories by viewModel.categoriesList.collectAsStateWithLifecycle()
     val providers by viewModel.serviceProvidersList.collectAsStateWithLifecycle()
     val isArabic = viewModel.currentLanguage == "ar"
@@ -1103,7 +1160,7 @@ fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) 
     var activeTab by remember { mutableStateOf(0) } 
 
     LaunchedEffect(Unit) {
-        viewModel.syncAdmins()
+        viewModel.checkAndSyncData(force = false)
     }
 
     val tabs = if (isSuperAdmin) {
@@ -1132,6 +1189,22 @@ fun OwnerDashboardScreen(navController: NavController, viewModel: AppViewModel) 
             )
         },
         actionsContent = {
+            // Manual sync button 🔄
+            IconButton(
+                onClick = {
+                    viewModel.checkAndSyncData(force = true, onSuccess = {
+                        Toast.makeText(context, if (isArabic) "تم تحديث البيانات بنجاح!" else "Data synced successfully!", Toast.LENGTH_SHORT).show()
+                    }, onFailure = { error ->
+                        Toast.makeText(context, if (isArabic) "فشل التحديث: $error" else "Sync failed: $error", Toast.LENGTH_SHORT).show()
+                    })
+                },
+                modifier = Modifier.testTag("manual_sync_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Manual sync data"
+                )
+            }
             // Language Select Inside Dashboard
             IconButton(onClick = { viewModel.toggleLanguage() }) {
                 Icon(Icons.Default.Language, "Toggle Language")
@@ -1818,6 +1891,7 @@ fun DashboardBrandingTab(viewModel: AppViewModel) {
 }
 
 // 4. Dashboard: ADMISSIONS / ADMINS CONTROL TAB
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardAdminsTab(viewModel: AppViewModel) {
     val isArabic = viewModel.currentLanguage == "ar"
@@ -1850,147 +1924,155 @@ fun DashboardAdminsTab(viewModel: AppViewModel) {
     var targetUserToChangePwd by remember { mutableStateOf("") }
     var newPasswordInput by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    PullToRefreshBox(
+        isRefreshing = viewModel.isSyncing,
+        onRefresh = {
+            viewModel.checkAndSyncData(force = true)
+        },
+        modifier = Modifier.fillMaxSize()
     ) {
-        Text(
-            text = if (isArabic) "إدارة صلاحيات وبيانات المشرفين" else "Supervisor Management & Passwords",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))
-        )
-
-        // Adding supervisor card styling
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF9F9F9)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEFEFEF))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = if (isArabic) "إضافة مشرف جديد" else "Register a New Supervisor",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                OutlinedTextField(
-                    value = inputAdminName,
-                    onValueChange = { inputAdminName = it },
-                    placeholder = { Text(if (isArabic) "اسم المشرف (مثال: maher)" else "Supervisor username") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = inputAdminPassword,
-                    onValueChange = { inputAdminPassword = it },
-                    placeholder = { Text(if (isArabic) "كلمة المرور الابتدائية" else "Initial password") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    onClick = {
-                        val username = inputAdminName.trim()
-                        val pwd = inputAdminPassword.trim()
-                        if (username.isNotBlank() && pwd.isNotBlank()) {
-                            viewModel.addAdminUser(username, pwd)
-                            Toast.makeText(context, if (isArabic) "تمت إضافة المشرف بنجاح!" else "New supervisor added successfully!", Toast.LENGTH_SHORT).show()
-                            inputAdminName = ""
-                            inputAdminPassword = ""
-                        } else {
-                            Toast.makeText(context, if (isArabic) "الرجاء تعبئة الاسم وكلمة المرور" else "Please enter username and initial password", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (isArabic) "تسجيل المشرف" else "Register Supervisor")
+            Text(
+                text = if (isArabic) "إدارة صلاحيات وبيانات المشرفين" else "Supervisor Management & Passwords",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))
+            )
+
+            // Adding supervisor card styling
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF9F9F9)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEFEFEF))
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (isArabic) "إضافة مشرف جديد" else "Register a New Supervisor",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    OutlinedTextField(
+                        value = inputAdminName,
+                        onValueChange = { inputAdminName = it },
+                        placeholder = { Text(if (isArabic) "اسم المشرف (مثال: maher)" else "Supervisor username") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = inputAdminPassword,
+                        onValueChange = { inputAdminPassword = it },
+                        placeholder = { Text(if (isArabic) "كلمة المرور الابتدائية" else "Initial password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            val username = inputAdminName.trim()
+                            val pwd = inputAdminPassword.trim()
+                            if (username.isNotBlank() && pwd.isNotBlank()) {
+                                viewModel.addAdminUser(username, pwd)
+                                Toast.makeText(context, if (isArabic) "تمت إضافة المشرف بنجاح!" else "New supervisor added successfully!", Toast.LENGTH_SHORT).show()
+                                inputAdminName = ""
+                                inputAdminPassword = ""
+                            } else {
+                                Toast.makeText(context, if (isArabic) "الرجاء تعبئة الاسم وكلمة المرور" else "Please enter username and initial password", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = parseColor(viewModel.primaryColorHex, Color(0xFF1E88E5))),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (isArabic) "تسجيل المشرف" else "Register Supervisor")
+                    }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-        Text(
-            text = if (isArabic) "المشرفون وصلاحيات الدخول الحالية:" else "Active Administrators & Passwords:",
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp
-        )
+            Text(
+                text = if (isArabic) "المشرفون وصلاحيات الدخول الحالية:" else "Active Administrators & Passwords:",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
 
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(viewModel.adminsList.toList()) { admin ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEEEEEE))
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.VerifiedUser, null, tint = if (admin == "admin") Color(0xFFE91E63) else Color(0xFF4CAF50))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(admin, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                    Text(
-                                        text = "${if (isArabic) "كلمة المرور" else "Password"}: ${viewModel.getAdminPassword(admin)}",
-                                        fontSize = 12.sp,
-                                        color = Color.Gray
-                                    )
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(viewModel.adminsList.toList()) { admin ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEEEEEE))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.VerifiedUser, null, tint = if (admin == "admin") Color(0xFFE91E63) else Color(0xFF4CAF50))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(admin, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = "${if (isArabic) "كلمة المرور" else "Password"}: ${viewModel.getAdminPassword(admin)}",
+                                            fontSize = 12.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                }
+                                
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (admin == "admin") {
+                                        Text(
+                                            text = if (isArabic) "المدير العام" else "Administrator",
+                                            color = Color(0xFFE91E63),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 8.dp)
+                                        )
+                                    }
                                 }
                             }
                             
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (admin == "admin") {
-                                    Text(
-                                        text = if (isArabic) "المدير العام" else "Administrator",
-                                        color = Color(0xFFE91E63),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
-                                    )
-                                }
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TextButton(
-                                onClick = {
-                                    targetUserToChangePwd = admin
-                                    newPasswordInput = ""
-                                    showChangePwdDialog = true
-                                }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (isArabic) "تغيير كلمة المرور" else "Change Password", fontSize = 13.sp)
-                            }
-
-                            if (admin != "admin") {
-                                Spacer(modifier = Modifier.width(8.dp))
                                 TextButton(
                                     onClick = {
-                                        viewModel.removeAdminUser(admin)
-                                        Toast.makeText(context, if (isArabic) "تم إلغاء صلاحية المشرف" else "Admin badge revoked", Toast.LENGTH_SHORT).show()
+                                        targetUserToChangePwd = admin
+                                        newPasswordInput = ""
+                                        showChangePwdDialog = true
                                     }
                                 ) {
-                                    Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text(if (isArabic) "حذف" else "Delete", color = Color.Red, fontSize = 13.sp)
+                                    Text(if (isArabic) "تغيير كلمة المرور" else "Change Password", fontSize = 13.sp)
+                                }
+
+                                if (admin != "admin") {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.removeAdminUser(admin)
+                                            Toast.makeText(context, if (isArabic) "تم إلغاء صلاحية المشرف" else "Admin badge revoked", Toast.LENGTH_SHORT).show()
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(if (isArabic) "حذف" else "Delete", color = Color.Red, fontSize = 13.sp)
+                                    }
                                 }
                             }
                         }
