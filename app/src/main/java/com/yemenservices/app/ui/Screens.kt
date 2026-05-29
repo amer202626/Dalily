@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -46,6 +48,7 @@ import kotlinx.coroutines.launch
 enum class AppScreen {
     Home,
     ProviderDetail,
+    CategoryDetail,
     AdminDashboard,
     SecretSettings
 }
@@ -83,6 +86,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
     // State management for navigation and modals
     var currentScreen by remember { mutableStateOf(AppScreen.Home) }
     var selectedProviderForDetail by remember { mutableStateOf<ServiceProvider?>(null) }
+    var selectedCategoryForDetail by remember { mutableStateOf<Category?>(null) }
     
     var showAdminLoginDialog by remember { mutableStateOf(false) }
     var showBackdoorDialog by remember { mutableStateOf(false) }
@@ -97,6 +101,11 @@ fun MainAppScreen(viewModel: AppViewModel) {
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Auto-login on launch
+    LaunchedEffect(Unit) {
+        viewModel.autoLoginIfSaved(context)
+    }
 
     MaterialTheme(
         colorScheme = if (isDark) {
@@ -154,7 +163,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
                         }
                     },
                     actions = {
-                        // All requested topbar action icons in specific right-to-left order (🔄, 🌐, 🌙, 🤖, ⚙️, 👤, 🏠) without text:
+                        // Specified 6 action icons in exact order: 🔄, 🌐, 🌙, ⚙️, 👤, 🏠 without text and no 🤖:
                         
                         // 1. Refresh 🔄
                         IconButton(
@@ -187,19 +196,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             )
                         }
 
-                        // 4. Smart Assistant 🤖
-                        IconButton(
-                            onClick = { isChatOpen = !isChatOpen },
-                            modifier = Modifier.testTag("top_ai_assistant_btn")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Android,
-                                contentDescription = "Smart Assistant Chat",
-                                tint = primaryColor
-                            )
-                        }
-
-                        // 5. Admin login ⚙️
+                        // 4. Admin login ⚙️
                         IconButton(
                             onClick = {
                                 val currentAdminValue = viewModel.currentAdmin.value
@@ -214,7 +211,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             Icon(Icons.Default.Settings, contentDescription = "Admin Entry", tint = primaryColor)
                         }
 
-                        // 6. Provider Registration 👤
+                        // 5. Provider Registration 👤
                         IconButton(
                             onClick = { showRegisterDialog = true },
                             modifier = Modifier.testTag("register_btn")
@@ -222,7 +219,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             Icon(Icons.Default.Person, contentDescription = "Register Service Provider", tint = primaryColor)
                         }
 
-                        // 7. Backdoor challenge entry 🏠 (Click 5 times, progress layout suppressed)
+                        // 6. Backdoor challenge entry 🏠 (Click 5 times)
                         IconButton(
                             onClick = {
                                 homeIconClicks++
@@ -282,7 +279,18 @@ fun MainAppScreen(viewModel: AppViewModel) {
             ) {
                 // Handle system back navigation nicely
                 BackHandler(enabled = currentScreen != AppScreen.Home) {
-                    currentScreen = AppScreen.Home
+                    if (currentScreen == AppScreen.CategoryDetail) {
+                        selectedCategoryForDetail = null
+                        currentScreen = AppScreen.Home
+                    } else if (currentScreen == AppScreen.ProviderDetail) {
+                        if (selectedCategoryForDetail != null) {
+                            currentScreen = AppScreen.CategoryDetail
+                        } else {
+                            currentScreen = AppScreen.Home
+                        }
+                    } else {
+                        currentScreen = AppScreen.Home
+                    }
                 }
 
                 when (currentScreen) {
@@ -292,6 +300,10 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             onProviderClick = { provider ->
                                 selectedProviderForDetail = provider
                                 currentScreen = AppScreen.ProviderDetail
+                            },
+                            onCategoryClick = { category ->
+                                selectedCategoryForDetail = category
+                                currentScreen = AppScreen.CategoryDetail
                             },
                             onAboutClick = { showAboutDialog = true },
                             primaryColor = primaryColor,
@@ -304,12 +316,39 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             onChatOpenChange = { isChatOpen = it }
                         )
                     }
+                    AppScreen.CategoryDetail -> {
+                        selectedCategoryForDetail?.let { category ->
+                            CategoryDetailScreen(
+                                category = category,
+                                viewModel = viewModel,
+                                onBack = {
+                                    selectedCategoryForDetail = null
+                                    currentScreen = AppScreen.Home
+                                },
+                                onProviderClick = { provider ->
+                                    selectedProviderForDetail = provider
+                                    currentScreen = AppScreen.ProviderDetail
+                                },
+                                primaryColor = primaryColor,
+                                secondaryColor = secondaryColor,
+                                cardBgColor = cardBgColor,
+                                textMainColor = textMainColor,
+                                textSecColor = textSecColor
+                            )
+                        }
+                    }
                     AppScreen.ProviderDetail -> {
                         selectedProviderForDetail?.let { provider ->
                             ProviderDetailScreen(
                                 provider = provider,
                                 viewModel = viewModel,
-                                onBack = { currentScreen = AppScreen.Home },
+                                onBack = {
+                                    if (selectedCategoryForDetail != null) {
+                                        currentScreen = AppScreen.CategoryDetail
+                                    } else {
+                                        currentScreen = AppScreen.Home
+                                    }
+                                },
                                 primaryColor = primaryColor,
                                 secondaryColor = secondaryColor,
                                 cardBgColor = cardBgColor,
@@ -349,10 +388,15 @@ fun MainAppScreen(viewModel: AppViewModel) {
                     AdminLoginDialog(
                         isArabic = isArabic,
                         onDismiss = { showAdminLoginDialog = false },
-                        onSubmit = { user, pass ->
+                        onSubmit = { user, pass, remember ->
                             val success = viewModel.loginAdmin(user, pass)
                             showAdminLoginDialog = false
                             if (success) {
+                                if (remember) {
+                                    viewModel.saveLogin(context, user, viewModel.isOwnerLoggedIn.value)
+                                } else {
+                                    viewModel.clearSavedLogin(context)
+                                }
                                 currentScreen = AppScreen.AdminDashboard
                                 Toast.makeText(context, if (isArabic) "مرحباً بك أيها المشرف" else "Welcome Supervisor", Toast.LENGTH_SHORT).show()
                             } else {
@@ -420,6 +464,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
 fun HomeScreen(
     viewModel: AppViewModel,
     onProviderClick: (ServiceProvider) -> Unit,
+    onCategoryClick: (Category) -> Unit,
     onAboutClick: () -> Unit,
     primaryColor: Color,
     secondaryColor: Color,
@@ -540,7 +585,7 @@ fun HomeScreen(
                                             if (cat.id == "all") {
                                                 viewModel.selectCategory(null)
                                             } else {
-                                                viewModel.selectCategory(cat.id)
+                                                onCategoryClick(cat)
                                             }
                                         }
                                         .testTag("cat_card_${cat.id}"),
@@ -553,12 +598,21 @@ fun HomeScreen(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.Center
                                     ) {
-                                        Icon(
-                                            imageVector = if (cat.id == "all") Icons.Filled.GridView else catIcon,
-                                            contentDescription = cat.name_ar,
-                                            tint = fgCol,
-                                            modifier = Modifier.size(24.dp)
-                                        )
+                                        if (cat.id != "all" && !cat.image_url.isNullOrBlank()) {
+                                            coil.compose.AsyncImage(
+                                                model = cat.image_url,
+                                                contentDescription = cat.name_ar,
+                                                modifier = Modifier.size(28.dp).clip(CircleShape),
+                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = if (cat.id == "all") Icons.Filled.GridView else catIcon,
+                                                contentDescription = cat.name_ar,
+                                                tint = fgCol,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = if (isArabic) cat.name_ar else cat.name_en,
@@ -859,7 +913,6 @@ fun HomeScreen(
                                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = textMainColor),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(46.dp)
                                     .testTag("chat_input"),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedTextColor = textMainColor,
@@ -1200,6 +1253,8 @@ fun AdminDashboardScreen(
     val categories by viewModel.categories.collectAsState()
 
     var showAddProviderSheet by remember { mutableStateOf(false) }
+    var showAddCategorySheet by remember { mutableStateOf(false) }
+    var providerToEdit by remember { mutableStateOf<ServiceProvider?>(null) }
 
     Column(
         modifier = Modifier
@@ -1262,6 +1317,7 @@ fun AdminDashboardScreen(
                 }
                 TextButton(onClick = {
                     viewModel.logout()
+                    viewModel.clearSavedLogin(context)
                     onBackToHome()
                 }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1282,13 +1338,42 @@ fun AdminDashboardScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (isArabic) "قائمة المهن ومقدمي الخدمات الحاليين" else "Current Registered list",
-                fontSize = 16.sp,
+                text = if (isArabic) "لوحة إدارة الخدمات" else "Service Dashboard",
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
-                color = textMainColor
+                color = textMainColor,
+                modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = { showAddProviderSheet = true }) {
-                Icon(Icons.Default.AddCircle, contentDescription = "Add", tint = primaryColor, modifier = Modifier.size(32.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Add Category Button
+                Button(
+                    onClick = { showAddCategorySheet = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Icon(Icons.Default.Category, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (isArabic) "إضافة قسم" else "+ Category", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                
+                // Add Provider Button
+                Button(
+                    onClick = {
+                        providerToEdit = null
+                        showAddProviderSheet = true
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (isArabic) "إضافة مهني" else "+ Provider", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
 

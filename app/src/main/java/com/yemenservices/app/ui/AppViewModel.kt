@@ -1,5 +1,6 @@
 package com.yemenservices.app.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yemenservices.app.data.AppConfig
@@ -291,5 +292,30 @@ class AppViewModel : ViewModel() {
     fun updateSystemConfig(config: AppConfig) {
         if (!isOwnerLoggedIn.value) return
         repository.updateAppConfig(config)
+    }
+
+    // H. Login Persistence helpers (Remember login state)
+    fun saveLogin(context: Context, username: String, isOwner: Boolean) {
+        val prefs = context.getSharedPreferences("dalili_login_prefs", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("saved_username", username)
+            .putBoolean("saved_is_owner", isOwner)
+            .apply()
+    }
+
+    fun clearSavedLogin(context: Context) {
+        val prefs = context.getSharedPreferences("dalili_login_prefs", Context.MODE_PRIVATE)
+        prefs.edit().clear().apply()
+    }
+
+    fun autoLoginIfSaved(context: Context) {
+        val prefs = context.getSharedPreferences("dalili_login_prefs", Context.MODE_PRIVATE)
+        val username = prefs.getString("saved_username", null)
+        val isOwner = prefs.getBoolean("saved_is_owner", false)
+        if (username != null) {
+            val supervisor = Supervisor("saved-session", username, "", is_super_admin = isOwner)
+            _currentAdmin.value = supervisor
+            _isOwnerLoggedIn.value = isOwner
+        }
     }
 }
