@@ -1,38 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    
-    <!-- Crossed Wrench (diagonal from top-left to bottom-right) -->
-    <path
-        android:fillColor="#FFC107"
-        android:pathData="M32.8,24.3 M26,31 M31,24.5 L36.5,30 M29,22 L39,32 L78,71 L71,78 L32,39 L22,29 Z" />
-    <path
-        android:fillColor="#FFC107"
-        android:pathData="M24,24 A5.5,5.5 0,1,0 35,35 A5.5,5.5 0,1,0 24,24 Z" />
-    <path
-        android:fillColor="#FFC107"
-        android:pathData="M74,74 A4,4 0,1,0 82,82 A4,4 0,1,0 74,74 Z" />
-
-    <!-- Crossed Hammer (diagonal from top-right to bottom-left) -->
-    <path
-        android:fillColor="#FFC107"
-        android:pathData="M78,22 L86,30 L39,77 L31,69 Z" />
-    <path
-        android:fillColor="#FFC107"
-        android:pathData="M64,21 L85,42 L80,47 L76,43 L69,26 Z" />
-
-    <!-- Vertical Screwdriver (centered vertically) -->
-    <path
-        android:fillColor="#FFC107"
-        android:pathData="M52,35 H56 V68 H52 Z" />
-    <path
-        android:fillColor="#FFC107"
-        android:pathData="M50,22 H58 V35 H50 Z" />
-    <path
-        android:fillColor="#FFC107"
-        android:pathData="M53,68 H55 V76 H53 Z" />
-
-</vector>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="72dp"
+        android:height="72dp"
+        android:drawable="@drawable/app_icon_tools_1780080788815"
+        android:gravity="center" />
+</layer-list>

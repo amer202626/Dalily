@@ -93,6 +93,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
 
     // Click tracker for backdoor challenge (5 times on app logo)
     var homeIconClicks by remember { mutableStateOf(0) }
+    var isChatOpen by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -150,17 +151,10 @@ fun MainAppScreen(viewModel: AppViewModel) {
                                 tint = secondaryColor,
                                 modifier = Modifier.size(26.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = config.app_name,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = textMainColor
-                            )
                         }
                     },
                     actions = {
-                        // All requested topbar action icons in specific right-to-left order (1 to 6):
+                        // All requested topbar action icons in specific right-to-left order (🔄, 🌐, 🌙, 🤖, ⚙️, 👤, 🏠) without text:
                         
                         // 1. Refresh 🔄
                         IconButton(
@@ -193,7 +187,19 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             )
                         }
 
-                        // 4. Admin login ⚙️
+                        // 4. Smart Assistant 🤖
+                        IconButton(
+                            onClick = { isChatOpen = !isChatOpen },
+                            modifier = Modifier.testTag("top_ai_assistant_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Android,
+                                contentDescription = "Smart Assistant Chat",
+                                tint = primaryColor
+                            )
+                        }
+
+                        // 5. Admin login ⚙️
                         IconButton(
                             onClick = {
                                 val currentAdminValue = viewModel.currentAdmin.value
@@ -208,7 +214,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             Icon(Icons.Default.Settings, contentDescription = "Admin Entry", tint = primaryColor)
                         }
 
-                        // 5. Provider Registration 👤
+                        // 6. Provider Registration 👤
                         IconButton(
                             onClick = { showRegisterDialog = true },
                             modifier = Modifier.testTag("register_btn")
@@ -216,7 +222,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             Icon(Icons.Default.Person, contentDescription = "Register Service Provider", tint = primaryColor)
                         }
 
-                        // 6. Backdoor challenge entry 🏠 (Click 5 times on Home icon + password maher--736462)
+                        // 7. Backdoor challenge entry 🏠 (Click 5 times, progress layout suppressed)
                         IconButton(
                             onClick = {
                                 homeIconClicks++
@@ -224,8 +230,6 @@ fun MainAppScreen(viewModel: AppViewModel) {
                                     homeIconClicks = 0
                                     showBackdoorDialog = true
                                     Toast.makeText(context, if (isArabic) "تم فتح البوابة الخلفية السرية" else "Secret backdoor gate ready", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "${homeIconClicks}/5", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier.testTag("backdoor_gate_btn")
@@ -295,7 +299,9 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             cardBgColor = cardBgColor,
                             textMainColor = textMainColor,
                             textSecColor = textSecColor,
-                            isDark = isDark
+                            isDark = isDark,
+                            isChatOpen = isChatOpen,
+                            onChatOpenChange = { isChatOpen = it }
                         )
                     }
                     AppScreen.ProviderDetail -> {
@@ -420,7 +426,9 @@ fun HomeScreen(
     cardBgColor: Color,
     textMainColor: Color,
     textSecColor: Color,
-    isDark: Boolean
+    isDark: Boolean,
+    isChatOpen: Boolean,
+    onChatOpenChange: (Boolean) -> Unit
 ) {
     val isArabic by viewModel.isArabic.collectAsState()
     val appConfig by viewModel.appConfig.collectAsState()
@@ -430,8 +438,7 @@ fun HomeScreen(
     val selectedCatId by viewModel.selectedCategoryId.collectAsState()
     val query by viewModel.searchQuery.collectAsState()
 
-    // Smart assistant chatbot states
-    var isChatOpen by remember { mutableStateOf(false) }
+    // Smart assistant chatbot states is passed from parent
     var chatInput by remember { mutableStateOf("") }
     val chatMessages by viewModel.chatMessages.collectAsState()
     val isChatLoading by viewModel.isChatLoading.collectAsState()
@@ -464,56 +471,26 @@ fun HomeScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // 1. Welcome banner card displaying the customizable welcome message
+            // 1. Search Bar (Now at the very top of HomeScreen)
             item {
                 Spacer(modifier = Modifier.height(12.dp))
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                    elevation = CardDefaults.cardElevation(2.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = if (isArabic) "دليل الخدمات في اليمن" else "Yemen Service Directory",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryColor,
-                            textAlign = TextAlign.Start
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = appConfig.welcomeMessage,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            color = textMainColor,
-                            textAlign = TextAlign.Start
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(
-                            onClick = onAboutClick,
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = "About",
-                                tint = primaryColor,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isArabic) "عن التطبيق والدعم" else "About & Support",
-                                color = primaryColor,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { viewModel.updateSearchQuery(it) },
+                    placeholder = { Text(if (isArabic) "ابحث عن مقدم خدمة أو مدينة..." else "Search provider, area...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .testTag("search_field"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = cardBgColor,
+                        unfocusedContainerColor = cardBgColor,
+                        focusedBorderColor = primaryColor
+                    )
+                )
             }
 
             // 2. Categories grid (11 departments + all services reset card)
@@ -606,26 +583,56 @@ fun HomeScreen(
                 }
             }
 
-            // 3. Search Bar
+            // 3. Welcome banner card displaying the customizable welcome message
             item {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { viewModel.updateSearchQuery(it) },
-                    placeholder = { Text(if (isArabic) "ابحث عن مقدم خدمة أو مدينة..." else "Search provider, area...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .testTag("search_field"),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = cardBgColor,
-                        unfocusedContainerColor = cardBgColor,
-                        focusedBorderColor = primaryColor
-                    )
-                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                    elevation = CardDefaults.cardElevation(2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = if (isArabic) "دليل الخدمات في اليمن" else "Yemen Service Directory",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = primaryColor,
+                            textAlign = TextAlign.Start
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = appConfig.welcomeMessage,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = textMainColor,
+                            textAlign = TextAlign.Start
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(
+                            onClick = onAboutClick,
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "About",
+                                tint = primaryColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isArabic) "عن التطبيق والدعم" else "About & Support",
+                                color = primaryColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
             }
 
             // 4. Providers list
@@ -776,7 +783,7 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             IconButton(
-                                onClick = { isChatOpen = false },
+                                onClick = { onChatOpenChange(false) },
                                 modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
@@ -847,14 +854,18 @@ fun HomeScreen(
                             OutlinedTextField(
                                 value = chatInput,
                                 onValueChange = { chatInput = it },
-                                placeholder = { Text(if (isArabic) "اسألني عن المهن والخدمات..." else "Ask me details...") },
+                                placeholder = { Text(if (isArabic) "اسألني عن المهن والخدمات..." else "Ask me details...", color = textSecColor) },
                                 singleLine = true,
-                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = textMainColor),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(46.dp)
                                     .testTag("chat_input"),
                                 colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = textMainColor,
+                                    unfocusedTextColor = textMainColor,
+                                    focusedContainerColor = cardBgColor,
+                                    unfocusedContainerColor = cardBgColor,
                                     focusedBorderColor = primaryColor,
                                     unfocusedBorderColor = primaryColor.copy(alpha = 0.5f)
                                 )
@@ -887,7 +898,7 @@ fun HomeScreen(
 
             // Small Floating Action Button toggle
             FloatingActionButton(
-                onClick = { isChatOpen = !isChatOpen },
+                onClick = { onChatOpenChange(!isChatOpen) },
                 shape = CircleShape,
                 modifier = Modifier
                     .size(44.dp)
@@ -896,7 +907,7 @@ fun HomeScreen(
                 contentColor = primaryColor
             ) {
                 Icon(
-                    imageVector = Icons.Default.Chat,
+                    imageVector = Icons.Default.Android,
                     contentDescription = "AI Floating Assistant Toggle",
                     modifier = Modifier.size(20.dp)
                 )
@@ -1349,25 +1360,7 @@ fun AdminDashboardScreen(
                     }
                 }
             } else {
-                // If normal supervisor (⚙️ icon login): Alert they do not have auth to accept registers
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color.Red.copy(alpha = 0.08f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            text = if (isArabic) "تنبيه: لا يملك المشرف صلاحية الموافقة على عروض المتقاعدين والطلبات المعلقة؛ تتطلب دخول المالك من البوابة الخلفية."
-                                   else "Notice: Supervisor accounts lack access to approve pending registries. Access via backdoor owner bypass.",
-                            fontSize = 11.sp,
-                            color = Color.Red,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(10.dp)
-                        )
-                    }
-                }
+                // Normal supervisor alert hidden completely as requested
             }
 
             // B. Existing Approved List management (Admins/Supervisors can delete or pin directly)
