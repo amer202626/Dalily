@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yemenservices.app.data.AppConfig
 import com.yemenservices.app.data.Category
 import com.yemenservices.app.data.PendingProvider
 import com.yemenservices.app.data.Review
@@ -56,9 +57,21 @@ fun MainAppScreen(viewModel: AppViewModel) {
     val isArabic by viewModel.isArabic.collectAsState()
     val isDark = isSystemInDarkTheme()
 
-    // Parse App Secret Settings colors dynamically
-    val primaryColor = Color(android.graphics.Color.parseColor(config.primary_color_hex))
-    val secondaryColor = Color(android.graphics.Color.parseColor(config.secondary_color_hex))
+    // Parse App Secret Settings colors dynamically with safe error recovery
+    val primaryColor = remember(config.primary_color_hex) {
+        try {
+            Color(android.graphics.Color.parseColor(config.primary_color_hex.trim()))
+        } catch (e: Exception) {
+            Color(0xFF1B5E20) // default Emerald
+        }
+    }
+    val secondaryColor = remember(config.secondary_color_hex) {
+        try {
+            Color(android.graphics.Color.parseColor(config.secondary_color_hex.trim()))
+        } catch (e: Exception) {
+            Color(0xFFFFC107) // default Gold
+        }
+    }
     
     // Core brand themes defined by properties
     val systemBgColor = if (isDark) Color(0xFF121212) else Color(0xFFF5F5F5)
@@ -73,6 +86,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
     var showAdminLoginDialog by remember { mutableStateOf(false) }
     var showBackdoorDialog by remember { mutableStateOf(false) }
     var showRegisterDialog by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
     var showAddProviderDialog by remember { mutableStateOf(false) }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
 
@@ -123,8 +137,14 @@ fun MainAppScreen(viewModel: AppViewModel) {
                                 }
                                 .testTag("app_logo_title")
                         ) {
+                            val logoIcon = when (config.selected_icon_type) {
+                                "tools" -> Icons.Default.Build
+                                "star" -> Icons.Default.Star
+                                "briefcase" -> Icons.Default.Work
+                                else -> Icons.Default.Home
+                            }
                             Icon(
-                                imageVector = Icons.Default.Home,
+                                imageVector = logoIcon,
                                 contentDescription = "Logo",
                                 tint = secondaryColor,
                                 modifier = Modifier.size(26.dp)
@@ -238,6 +258,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
                                 selectedProviderForDetail = provider
                                 currentScreen = AppScreen.ProviderDetail
                             },
+                            onAboutClick = { showAboutDialog = true },
                             primaryColor = primaryColor,
                             secondaryColor = secondaryColor,
                             cardBgColor = cardBgColor,
@@ -339,6 +360,20 @@ fun MainAppScreen(viewModel: AppViewModel) {
                         }
                     )
                 }
+
+                // D. About application and support dialog
+                if (showAboutDialog) {
+                    AboutApplicationDialog(
+                        isArabic = isArabic,
+                        config = config,
+                        primaryColor = primaryColor,
+                        secondaryColor = secondaryColor,
+                        cardBgColor = cardBgColor,
+                        textMainColor = textMainColor,
+                        textSecColor = textSecColor,
+                        onDismiss = { showAboutDialog = false }
+                    )
+                }
             }
         }
     }
@@ -350,6 +385,7 @@ fun MainAppScreen(viewModel: AppViewModel) {
 fun HomeScreen(
     viewModel: AppViewModel,
     onProviderClick: (ServiceProvider) -> Unit,
+    onAboutClick: () -> Unit,
     primaryColor: Color,
     secondaryColor: Color,
     cardBgColor: Color,
@@ -405,6 +441,25 @@ fun HomeScreen(
                     color = textMainColor,
                     textAlign = TextAlign.Start
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = onAboutClick,
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "About",
+                        tint = primaryColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isArabic) "عن التطبيق والدعم" else "About & Support",
+                        color = primaryColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
@@ -638,7 +693,7 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = if (isArabic) "مساعد دليل الخدمات الذكي" else "Services Smart Assistant",
+                                    text = if (isArabic) "دليل الخدمات في اليمن" else "Yemen Service Directory",
                                     color = Color.White,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
@@ -1339,6 +1394,9 @@ fun SecretSettingsScreen(
     var customAppName by remember { mutableStateOf(sysConfig.app_name) }
     var welcomeString by remember { mutableStateOf(sysConfig.welcomeMessage) }
     var customPrimaryColor by remember { mutableStateOf(sysConfig.primary_color_hex) }
+    var customSecondaryColor by remember { mutableStateOf(sysConfig.secondary_color_hex) }
+    var customSupportEmail by remember { mutableStateOf(sysConfig.support_email) }
+    var customIconType by remember { mutableStateOf(sysConfig.selected_icon_type) }
     var customFooterText by remember { mutableStateOf(sysConfig.footer_text) }
     var customFooterPhone by remember { mutableStateOf(sysConfig.footer_phone) }
 
@@ -1404,16 +1462,101 @@ fun SecretSettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 4
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Palette Section (Requirement 10)
+                Text(
+                    text = if (isArabic) "قوالب ألوان سريعة للتطبيق:" else "Quick Theme Color Presets:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textMainColor
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val presets = listOf(
+                        Triple("زمردي 🟢", "#1B5E20", "#FFC107"),
+                        Triple("فضي ⚪", "#607D8B", "#FFC107"),
+                        Triple("ذهبي 🟡", "#FFC107", "#212121"),
+                        Triple("أزرق 🔵", "#0288D1", "#FFC107")
+                    )
+                    presets.forEach { (name, pr, sc) ->
+                        Button(
+                            onClick = {
+                                customPrimaryColor = pr
+                                customSecondaryColor = sc
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(android.graphics.Color.parseColor(pr))),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text(
+                                text = name.split(" ")[0],
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (pr == "#FFC107") Color.Black else Color.White
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Primary Color Field Hex String
                 OutlinedTextField(
                     value = customPrimaryColor,
                     onValueChange = { customPrimaryColor = it },
-                    label = { Text(if (isArabic) "كود لون التطبيق (Hex)" else "Application color accent (Hex)") },
+                    label = { Text(if (isArabic) "لون التطبيق الأساسي (Hex)" else "Primary App Color (Hex)") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+
+                // Secondary Color Field Hex String (Requirement 11, editable)
+                OutlinedTextField(
+                    value = customSecondaryColor,
+                    onValueChange = { customSecondaryColor = it },
+                    label = { Text(if (isArabic) "لون التطبيق الثانوي / التزييني (Hex)" else "Secondary/Accent Color (Hex)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // App Icon Selector Section
+                Text(
+                    text = if (isArabic) "اختر نمط شعار وأيقونة التطبيق:" else "Choose App Logo & Icon Style:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textMainColor
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val iconOptions = listOf(
+                        Pair("tools", if (isArabic) "أدوات 🛠️" else "Tools 🛠️"),
+                        Pair("star", if (isArabic) "نجمة ⭐" else "Star ⭐"),
+                        Pair("briefcase", if (isArabic) "حقيبة 💼" else "Bag 💼"),
+                        Pair("home", if (isArabic) "رئيسية 🏠" else "Home 🏠")
+                    )
+                    iconOptions.forEach { (id, label) ->
+                        val isSelected = customIconType == id
+                        OutlinedButton(
+                            onClick = { customIconType = id },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSelected) primaryColor.copy(alpha = 0.15f) else Color.Transparent
+                            ),
+                            border = BorderStroke(1.5.dp, if (isSelected) primaryColor else textSecColor.copy(alpha = 0.4f)),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text(label, fontSize = 9.sp, color = textMainColor, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Footer Text Customizable String (Requirement 10)
                 OutlinedTextField(
@@ -1431,7 +1574,16 @@ fun SecretSettingsScreen(
                     label = { Text(if (isArabic) "رقم هاتف الدعم الفني" else "Support help line phone") },
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Support Email customizable field (Requirement 8)
+                OutlinedTextField(
+                    value = customSupportEmail,
+                    onValueChange = { customSupportEmail = it },
+                    label = { Text(if (isArabic) "البريد الإلكتروني للدعم" else "Support email address") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
                     onClick = {
@@ -1439,8 +1591,11 @@ fun SecretSettingsScreen(
                             app_name = customAppName,
                             welcomeMessage = welcomeString,
                             primary_color_hex = customPrimaryColor,
+                            secondary_color_hex = customSecondaryColor,
                             footer_text = customFooterText,
-                            footer_phone = customFooterPhone
+                            footer_phone = customFooterPhone,
+                            support_email = customSupportEmail,
+                            selected_icon_type = customIconType
                         )
                         viewModel.updateSystemConfig(updatedConfig)
                         Toast.makeText(context, if (isArabic) "تم حفظ خصائص النظام" else "Metadata saved successfully", Toast.LENGTH_SHORT).show()
@@ -1810,6 +1965,120 @@ fun AddProviderSheetDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(if (isArabic) "إلغاء" else "Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun AboutApplicationDialog(
+    isArabic: Boolean,
+    config: AppConfig,
+    primaryColor: Color,
+    secondaryColor: Color,
+    cardBgColor: Color,
+    textMainColor: Color,
+    textSecColor: Color,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = if (isArabic) "عن التطبيق والدعم" else "About & Support",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = primaryColor
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = if (isArabic) "اسم التطبيق: ${config.app_name}" else "App Name: ${config.app_name}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = textMainColor
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = if (isArabic) 
+                        "دليل الخدمات هو التطبيق الأول والوحيد في اليمن الذي يجمع جميع المهن والمهندسين وأصحاب الحرف بين يديك ويسهل الوصول والاتصال المباشر." 
+                        else "Yemen Service Directory connects you to verified professional handymen and technical expertise with one-click direct communication.",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    color = textSecColor
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                
+                // Contact Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    IconButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${config.footer_phone}"))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {}
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(primaryColor.copy(alpha = 0.12f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Phone, contentDescription = "Call Support", tint = primaryColor)
+                    }
+                    IconButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${config.support_whatsapp}"))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {}
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(Color(0xFF25D366).copy(alpha = 0.12f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Chat, contentDescription = "WhatsApp Support", tint = Color(0xFF25D366))
+                    }
+                    IconButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_SENDTO, Uri.fromParts("mailto", config.support_email, null))
+                                context.startActivity(Intent.createChooser(intent, "Send email..."))
+                            } catch (e: Exception) {}
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(secondaryColor.copy(alpha = 0.12f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Email, contentDescription = "Email Support", tint = secondaryColor)
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = if (isArabic) "رقم الدعم الفني: ${config.footer_phone}" else "Support Line: ${config.footer_phone}",
+                    fontSize = 12.sp,
+                    color = textSecColor,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = if (isArabic) "البريد الإلكتروني: ${config.support_email}" else "Email: ${config.support_email}",
+                    fontSize = 12.sp,
+                    color = textSecColor,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+            ) {
+                Text(if (isArabic) "حسناً" else "Close")
             }
         }
     )

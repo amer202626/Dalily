@@ -60,7 +60,8 @@ data class AppConfig(
     val support_email: String = "support@dalili.ye",
     val newest_apk_version: String = "1.0",
     val apk_download_url: String = "https://example.com/dalili.apk",
-    val list_sort_mode: String = "name" // "name" or "id"
+    val list_sort_mode: String = "name", // "name" or "id"
+    val selected_icon_type: String = "tools"
 )
 
 @Serializable
