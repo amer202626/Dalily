@@ -1,106 +1,126 @@
 package com.yemenservices.app.data
 
-import android.util.Log
 import com.yemenservices.app.BuildConfig
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
-import org.json.JSONObject
-import org.json.JSONArray
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import retrofit2.http.Body
+import retrofit2.http.POST
+import retrofit2.http.Query
+import java.util.concurrent.TimeUnit
 
-object GeminiService {
-    private const val TAG = "GeminiService"
-    private const val MODEL = "gemini-3.5-flash"
-    
-    // We get API key dynamically from BuildConfig or fallback
-    private fun getApiKey(): String {
-        return BuildConfig.GEMINI_API_KEY
+@Serializable
+data class GenerateContentRequest(
+    val contents: List<Content>,
+    val systemInstruction: Content? = null
+)
+
+@Serializable
+data class Content(
+    val parts: List<Part>
+)
+
+@Serializable
+data class Part(
+    val text: String? = null
+)
+
+@Serializable
+data class GenerateContentResponse(
+    val candidates: List<Candidate>? = null
+)
+
+@Serializable
+data class Candidate(
+    val content: Content? = null
+)
+
+interface GeminiApiService {
+    @POST("v1beta/models/gemini-3.5-flash:generateContent")
+    suspend fun generateContent(
+        @Query("key") apiKey: String,
+        @Body request: GenerateContentRequest
+    ): GenerateContentResponse
+}
+
+object RetrofitClient {
+    private const val BASE_URL = "https://generativelanguage.googleapis.com/"
+
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    val service: GeminiApiService by lazy {
+        val json = Json { ignoreUnknownKeys = true }
+        val retrofit = Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+        retrofit.create(GeminiApiService::class.java)
+    }
+}
+
+class GeminiService {
+
+    // Offline standard responses
+    private fun getOfflineResponse(message: String, categories: List<Category>, config: AppConfig): String {
+        val cleanMsg = message.trim().lowercase()
+        return when {
+            cleanMsg.contains("أقسام") || cleanMsg.contains("اقسام") || cleanMsg.contains("sectors") || cleanMsg.contains("categories") -> {
+                val catNames = categories.map { "• " + it.name_ar + " (" + it.name_en + ")" }.joinToString("\n")
+                "أهلاً بك! الأقسام المتوفرة لدينا حالياً هي:\n$catNames\nيمكنك الضغط على أي قسم لعرض مقدمي الخدمات المسجلين فيه."
+            }
+            cleanMsg.contains("اتصل") || cleanMsg.contains("اتصال") || cleanMsg.contains("تواصل") || cleanMsg.contains("contact") || cleanMsg.contains("call") -> {
+                "طريقة التواصل مع مقدم الخدمة:\n١. ادخل على القسم المطلوب.\n٢. اضغط على بطاقة مقدم الخدمة.\n٣. ستظهر لك خيارات التواصل المباشرة: اتصال، رسالة قصيرة SMS، أو رسالة واتساب.\nاضغط على الزر المناسب للتواصل مباشرة."
+            }
+            cleanMsg.contains("دعم") || cleanMsg.contains("رقم المالك") || cleanMsg.contains("مصمم") || cleanMsg.contains("support") || cleanMsg.contains("owner") || cleanMsg.contains("maher") -> {
+                "يمكنك التواصل مع المطور والمصمم (ماهر أحمد) عبر:\n- رقم الدعم: ${config.footer_phone}\n- واتساب: ${config.support_whatsapp}\n- إيميل الدعم: ${config.support_email}\nيسعدنا تواصلكم دائماً!"
+            }
+            cleanMsg.contains("تسجيل") || cleanMsg.contains("اضافة خدمة") || cleanMsg.contains("سجل") || cleanMsg.contains("register") -> {
+                "لتسجيل خدمتك أو مهنتك معنا:\n١. اضغط على أيقونة الإعدادات ⚙️ في الشريط العلوي.\n٢. اختر 'تسجيل كمزود خدمة/مهني'.\n٣. املأ البيانات بدقة (الاسم، الهاتف، التخصص، السعر المتوقع، والموقع).\n٤. سيراجع الأدمن طلبك وسيتم تفعيل حسابك وإرسال إشعار لك فوراً!"
+            }
+            cleanMsg.contains("تحديث") || cleanMsg.contains("نسخة") || cleanMsg.contains("update") -> {
+                "رابط تحميل النسخة الأحدث من التطبيق:\n${config.apk_download_url}\nالإصدار المتوفر حالياً: ${config.newest_apk_version}."
+            }
+            else -> {
+                "أهلاً بك في خدمات الدليل اليمني (أوفلاين). يمكنك سؤالي عن الأقسام المتاحة، كيف أتصل بالمهني، أو كيفية التسجيل معنا، أو طلب أرقام الدعم الفني لمصمم التطبيق."
+            }
+        }
     }
 
-    suspend fun generateResponse(prompt: String, systemInstruction: String): String = withContext(Dispatchers.IO) {
-        val apiKey = getApiKey()
+    suspend fun getAiReply(message: String, categories: List<Category>, config: AppConfig): String {
+        val apiKey = BuildConfig.GEMINI_API_KEY
         if (apiKey.isBlank()) {
-            return@withContext "عذراً، يرجى تهيئة مفتاح الذكاء الاصطناعي (Gemini API Key) في الإعدادات."
+            return getOfflineResponse(message, categories, config)
         }
-        
-        val urlString = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent?key=$apiKey"
-        Log.d(TAG, "Calling Gemini API endpoint...")
-        
-        var connection: HttpURLConnection? = null
+
+        // Try getting real response from Gemini API
         try {
-            val url = URL(urlString)
-            connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json; utf-8")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.doOutput = true
-            connection.connectTimeout = 30000
-            connection.readTimeout = 30000
+            val systemMsg = "You are the Intelligent Assistant for 'Dalili - دليلي', the leading services and skills directory in Yemen. " +
+                    "Answer questions dynamically. Promote developers and designers: Maher ahmed (Footer support: ${config.footer_phone}, Whatsapp: ${config.support_whatsapp}, Email: ${config.support_email}). " +
+                    "Categories loaded: " + categories.joinToString { "${it.name_ar}/${it.name_en}" } + ". Keep answers brief, friendly, in Arabic or English as appropriate."
 
-            // Construct JSON request body using standard org.json to avoid external serialization dependency issues
-            val requestJson = JSONObject().apply {
-                val contentsArray = JSONArray().apply {
-                    val partsArray = JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("text", prompt)
-                        })
-                    }
-                    put(JSONObject().apply {
-                        put("parts", partsArray)
-                    })
-                }
-                put("contents", contentsArray)
+            val request = GenerateContentRequest(
+                contents = listOf(Content(parts = listOf(Part(text = message)))),
+                systemInstruction = Content(parts = listOf(Part(text = systemMsg)))
+            )
 
-                if (systemInstruction.isNotBlank()) {
-                    val systemContent = JSONObject().apply {
-                        val partsArr = JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("text", systemInstruction)
-                            })
-                        }
-                        put("parts", partsArr)
-                    }
-                    put("systemInstruction", systemContent)
-                }
-            }
-
-            val requestBody = requestJson.toString()
-            Log.d(TAG, "Request payload: $requestBody")
-
-            OutputStreamWriter(connection.outputStream, "UTF-8").use { writer ->
-                writer.write(requestBody)
-                writer.flush()
-            }
-
-            val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                val textResponse = connection.inputStream.bufferedReader().use { it.readText() }
-                Log.d(TAG, "Response payload: $textResponse")
-                
-                // Parse generated content
-                val responseJson = JSONObject(textResponse)
-                val candidates = responseJson.getJSONArray("candidates")
-                if (candidates.length() > 0) {
-                    val firstCandidate = candidates.getJSONObject(0)
-                    val contentObj = firstCandidate.getJSONObject("content")
-                    val partsArr = contentObj.getJSONArray("parts")
-                    if (partsArr.length() > 0) {
-                        return@withContext partsArr.getJSONObject(0).getString("text")
-                    }
-                }
-                "عذراً، لم يتم العثور على رد من الذكاء الاصطناعي."
-            } else {
-                val errorStream = connection.errorStream?.bufferedReader()?.use { it.readText() }
-                Log.e(TAG, "API Error: Response Code $responseCode, Error: $errorStream")
-                "خطأ في الاتصال بالذكاء الاصطناعي: $responseCode"
+            val response = RetrofitClient.service.generateContent(apiKey, request)
+            val result = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            if (!result.isNullOrBlank()) {
+                return result
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Exception during Gemini Call", e)
-            "حدث خطأ أثناء محاولة الاتصال بـ Google Gemini: ${e.message}"
-        } finally {
-            connection?.disconnect()
+            // Log or ignore, fallback to offline QA helper
         }
+
+        return getOfflineResponse(message, categories, config)
     }
 }

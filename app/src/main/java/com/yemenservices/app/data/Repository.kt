@@ -1,268 +1,205 @@
 package com.yemenservices.app.data
 
-import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import java.util.UUID
 
 class Repository {
     private val firestore = FirebaseFirestore.getInstance()
-    private val TAG = "FirestoreRepository"
 
-    private val _categoriesFlow = MutableStateFlow<List<Category>>(emptyList())
-    val categoriesFlow: StateFlow<List<Category>> = _categoriesFlow.asStateFlow()
+    // Base fallback configurations to populate if remote database is empty
+    private val initialCategories = listOf(
+        Category("cat_1", "سباكة وصحي", "Plumbing & Sanitary", "plumbing", 1, "https://images.unsplash.com/photo-1581244277943-fe4a9c777189?w=500&q=80"),
+        Category("cat_2", "كهرباء منازل", "Home Electricity", "bolt", 2, "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=500&q=80"),
+        Category("cat_3", "صيانة تكييف", "AC Repair & Maintenance", "ac_unit", 3, "https://images.unsplash.com/photo-1621905252507-b354bc25edac?w=500&q=80"),
+        Category("cat_4", "صيانة هواتف", "Mobile Maintenance", "smartphone", 4, "https://images.unsplash.com/photo-1597740985671-2a8a3b80f017?w=500&q=80"),
+        Category("cat_5", "خياطة وتطريز", "Tailoring & Fashion", "architecture", 5, "https://images.unsplash.com/photo-1544816155-12df9643f363?w=500&q=80"),
+        Category("cat_6", "نقل وأجرة", "Transport & Taxi", "local_shipping", 6, "https://images.unsplash.com/photo-1516574187841-cb9cc2ca948b?w=500&q=80")
+    )
 
-    private val _providersFlow = MutableStateFlow<List<ServiceProvider>>(emptyList())
-    val providersFlow: StateFlow<List<ServiceProvider>> = _providersFlow.asStateFlow()
+    private val initialProviders = listOf(
+        ServiceProvider("p_1", "cat_1", "المهندس عادل السباك", "Engineer Adel Plumber", "777123456", "777123456", "777123456", "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80", is_pinned = true, is_approved = true, "low", "close", 15.3522, 44.2078),
+        ServiceProvider("p_2", "cat_1", "سباكة السلام الفنية", "Al-Salam Technical Plumbers", "733987654", "733987654", "733987654", null, is_pinned = false, is_approved = true, "medium", "medium", 15.3694, 44.1910),
+        ServiceProvider("p_3", "cat_2", "كهربائي يمني محترف", "Professional Yemeni Electrician", "711223344", "711223344", "711223344", "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=200&q=80", is_pinned = true, is_approved = true, "medium", "close", 15.3812, 44.1802),
+        ServiceProvider("p_4", "cat_4", "تكنو فون لصيانة الموبايل", "Techno Phone Repair", "770112233", "770112233", "770112233", "https://images.unsplash.com/photo-1597740985671-2a8a3b80f017?w=200&q=80", is_pinned = false, is_approved = true, "high", "far", 15.3400, 44.2200),
+        ServiceProvider("p_5", "cat_3", "برق الشمال للتكييف", "Northern Lightning for AC", "775664422", "775664422", "", null, is_pinned = false, is_approved = true, "high", "medium", 15.3650, 44.1980)
+    )
 
-    private val _reviewsFlow = MutableStateFlow<List<Review>>(emptyList())
-    val reviewsFlow: StateFlow<List<Review>> = _reviewsFlow.asStateFlow()
+    private val initialReviews = listOf(
+        Review("r_1", "p_1", "أحمد السعيدي", "خدمة سريعة وممتازة وسعر مناسب جداً أنصح بالتعامل معه", 5.0),
+        Review("r_2", "p_1", "Amr Ali", "Excellent plumber, fixed my bathroom leakage efficiently", 5.0),
+        Review("r_3", "p_3", "خالد الكبسي", "مهندس ممتاز جدا ومحاضر وخبير", 4.0)
+    )
 
-    private val _adminsFlow = MutableStateFlow<List<Admin>>(emptyList())
-    val adminsFlow: StateFlow<List<Admin>> = _adminsFlow.asStateFlow()
-
-    private val _configFlow = MutableStateFlow<AppConfig>(AppConfig())
-    val configFlow: StateFlow<AppConfig> = _configFlow.asStateFlow()
-
-    private var categoriesListener: ListenerRegistration? = null
-    private var providersListener: ListenerRegistration? = null
-    private var reviewsListener: ListenerRegistration? = null
-    private var adminsListener: ListenerRegistration? = null
-    private var configListener: ListenerRegistration? = null
-
-    init {
-        startRealtimeListening()
-    }
-
-    private fun startRealtimeListening() {
-        Log.i(TAG, "Starting direct real-time Firestore listeners.")
-
-        // Listen for AppConfig
-        configListener = firestore.collection("app_config").document("settings")
+    // Listen to Categories Flow
+    fun getCategories(): Flow<List<Category>> = callbackFlow {
+        val listener: ListenerRegistration = firestore.collection("categories")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.e(TAG, "Config snapshot listener failed: ${error.message}", error)
+                    trySend(initialCategories)
                     return@addSnapshotListener
                 }
-                snapshot?.let { doc ->
-                    if (doc.exists()) {
-                        try {
-                            doc.toObject(AppConfig::class.java)?.let {
-                                _configFlow.value = it
-                                Log.d(TAG, "Realtime update: Loaded AppConfig with theme ${it.app_theme}")
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to parse AppConfig document", e)
-                        }
+                if (snapshot != null) {
+                    val list = snapshot.toObjects(Category::class.java)
+                    if (list.isEmpty()) {
+                        // Populate remote with default categories if empty
+                        initialCategories.forEach { addCategory(it) }
+                        trySend(initialCategories)
                     } else {
-                        // Create default config
-                        val defaultConfig = AppConfig()
-                        saveConfig(defaultConfig, {}, {})
+                        trySend(list.sortedBy { it.order_index })
                     }
+                } else {
+                    trySend(initialCategories)
                 }
             }
-
-        // Listen for Categories
-        categoriesListener = firestore.collection("categories")
-            .addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    Log.e(TAG, "Categories real-time snapshot listener failed: ${error.message}", error)
-                    return@addSnapshotListener
-                }
-                snapshots?.let { querySnapshot ->
-                    val list = querySnapshot.documents.mapNotNull { doc ->
-                        try {
-                            doc.toObject(Category::class.java)?.apply { id = doc.id }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to parse Category document: ${doc.id}", e)
-                            null
-                        }
-                    }.sortedBy { it.order_index }
-                    _categoriesFlow.value = list
-                    Log.d(TAG, "Realtime update: Loaded ${list.size} categories.")
-                }
-            }
-
-        // Listen for Service Providers
-        providersListener = firestore.collection("service_providers")
-            .addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    Log.e(TAG, "Providers real-time snapshot listener failed: ${error.message}", error)
-                    return@addSnapshotListener
-                }
-                snapshots?.let { querySnapshot ->
-                    val list = querySnapshot.documents.mapNotNull { doc ->
-                        try {
-                            doc.toObject(ServiceProvider::class.java)?.apply { id = doc.id }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to parse ServiceProvider document: ${doc.id}", e)
-                            null
-                        }
-                    }
-                    _providersFlow.value = list
-                    Log.d(TAG, "Realtime update: Loaded ${list.size} providers.")
-                }
-            }
-
-        // Listen for Reviews
-        reviewsListener = firestore.collection("reviews")
-            .addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    Log.e(TAG, "Reviews real-time snapshot listener failed: ${error.message}", error)
-                    return@addSnapshotListener
-                }
-                snapshots?.let { querySnapshot ->
-                    val list = querySnapshot.documents.mapNotNull { doc ->
-                        try {
-                            doc.toObject(Review::class.java)?.apply { id = doc.id }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to parse Review document: ${doc.id}", e)
-                            null
-                        }
-                    }.sortedByDescending { it.created_at }
-                    _reviewsFlow.value = list
-                    Log.d(TAG, "Realtime update: Loaded ${list.size} reviews.")
-                }
-            }
-
-        // Listen for Admins
-        adminsListener = firestore.collection("admins")
-            .addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    Log.e(TAG, "Admins real-time snapshot listener failed: ${error.message}", error)
-                    return@addSnapshotListener
-                }
-                snapshots?.let { querySnapshot ->
-                    val list = querySnapshot.documents.mapNotNull { doc ->
-                        try {
-                            doc.toObject(Admin::class.java)?.apply { username = doc.id }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to parse Admin document: ${doc.id}", e)
-                            null
-                        }
-                    }
-                    _adminsFlow.value = list
-                    Log.d(TAG, "Realtime update: Loaded ${list.size} admins.")
-                }
-            }
+        awaitClose { listener.remove() }
     }
 
-    // Direct Firestore mutations
-    fun saveCategory(category: Category, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
+    // Listen to Providers Flow
+    fun getProviders(): Flow<List<ServiceProvider>> = callbackFlow {
+        val listener: ListenerRegistration = firestore.collection("providers")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(initialProviders)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val list = snapshot.toObjects(ServiceProvider::class.java)
+                    if (list.isEmpty()) {
+                        initialProviders.forEach { addProvider(it) }
+                        trySend(initialProviders)
+                    } else {
+                        trySend(list)
+                    }
+                } else {
+                    trySend(initialProviders)
+                }
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // Listen to Reviews Flow
+    fun getReviews(): Flow<List<Review>> = callbackFlow {
+        val listener: ListenerRegistration = firestore.collection("reviews")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(initialReviews)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val list = snapshot.toObjects(Review::class.java)
+                    if (list.isEmpty()) {
+                        initialReviews.forEach { addReview(it) }
+                        trySend(initialReviews)
+                    } else {
+                        trySend(list)
+                    }
+                } else {
+                    trySend(initialReviews)
+                }
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // Listen to AppConfig Flow
+    fun getAppConfig(): Flow<AppConfig> = callbackFlow {
+        val docRef = firestore.collection("config").document("singleton")
+        val listener = docRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                trySend(AppConfig())
+                return@addSnapshotListener
+            }
+            if (snapshot != null && snapshot.exists()) {
+                val config = snapshot.toObject(AppConfig::class.java)
+                trySend(config ?: AppConfig())
+            } else {
+                // Prepopulate
+                val defaultConfig = AppConfig()
+                docRef.set(defaultConfig)
+                trySend(defaultConfig)
+            }
+        }
+        awaitClose { listener.remove() }
+    }
+
+    // Listen to Supervisors Flow
+    fun getSupervisors(): Flow<List<Supervisor>> = callbackFlow {
+        val listener = firestore.collection("supervisors")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(listOf(Supervisor("admin_1", "maher", "736462", "admin")))
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val list = snapshot.toObjects(Supervisor::class.java)
+                    if (list.isEmpty()) {
+                        val initSuper = Supervisor("admin_1", "maher", "736462", "admin")
+                        addSupervisor(initSuper)
+                        trySend(listOf(initSuper))
+                    } else {
+                        trySend(list)
+                    }
+                } else {
+                    trySend(listOf(Supervisor("admin_1", "maher", "736462", "admin")))
+                }
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // --- Write/Update Operations ---
+
+    fun addCategory(category: Category) {
+        val docId = category.id.ifBlank { UUID.randomUUID().toString() }
+        val finalCategory = category.copy(id = docId)
+        firestore.collection("categories").document(docId).set(finalCategory)
+    }
+
+    fun updateCategory(category: Category) {
         firestore.collection("categories").document(category.id).set(category)
-            .addOnSuccessListener {
-                Log.d(TAG, "Category saved to Firestore: ${category.id}")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to save category to Firestore: ${category.id}", e)
-                onFailure(e)
-            }
     }
 
-    fun deleteCategory(categoryId: String, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
+    fun deleteCategory(categoryId: String) {
         firestore.collection("categories").document(categoryId).delete()
-            .addOnSuccessListener {
-                Log.d(TAG, "Category deleted from Firestore: $categoryId")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to delete category from Firestore: $categoryId", e)
-                onFailure(e)
-            }
     }
 
-    fun saveProvider(provider: ServiceProvider, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("service_providers").document(provider.id).set(provider)
-            .addOnSuccessListener {
-                Log.d(TAG, "Provider saved to Firestore: ${provider.id}")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to save provider to Firestore: ${provider.id}", e)
-                onFailure(e)
-            }
+    fun addProvider(provider: ServiceProvider) {
+        val docId = provider.id.ifBlank { UUID.randomUUID().toString() }
+        val finalProvider = provider.copy(id = docId)
+        firestore.collection("providers").document(docId).set(finalProvider)
     }
 
-    fun deleteProvider(providerId: String, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("service_providers").document(providerId).delete()
-            .addOnSuccessListener {
-                Log.d(TAG, "Provider deleted from Firestore: $providerId")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to delete provider from Firestore: $providerId", e)
-                onFailure(e)
-            }
+    fun updateProvider(provider: ServiceProvider) {
+        firestore.collection("providers").document(provider.id).set(provider)
     }
 
-    fun saveReview(review: Review, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("reviews").document(review.id).set(review)
-            .addOnSuccessListener {
-                Log.d(TAG, "Review saved to Firestore: ${review.id}")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to save review to Firestore: ${review.id}", e)
-                onFailure(e)
-            }
+    fun deleteProvider(providerId: String) {
+        firestore.collection("providers").document(providerId).delete()
     }
 
-    fun deleteReview(reviewId: String, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
+    fun addReview(review: Review) {
+        val docId = review.id.ifBlank { UUID.randomUUID().toString() }
+        val finalReview = review.copy(id = docId)
+        firestore.collection("reviews").document(docId).set(finalReview)
+    }
+
+    fun deleteReview(reviewId: String) {
         firestore.collection("reviews").document(reviewId).delete()
-            .addOnSuccessListener {
-                Log.d(TAG, "Review deleted from Firestore: $reviewId")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to delete review from Firestore: $reviewId", e)
-                onFailure(e)
-            }
     }
 
-    fun saveAdmin(admin: Admin, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("admins").document(admin.username).set(admin)
-            .addOnSuccessListener {
-                Log.d(TAG, "Admin saved to Firestore: ${admin.username}")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to save admin to Firestore: ${admin.username}", e)
-                onFailure(e)
-            }
+    fun addSupervisor(supervisor: Supervisor) {
+        val docId = supervisor.id.ifBlank { UUID.randomUUID().toString() }
+        val finalSup = supervisor.copy(id = docId)
+        firestore.collection("supervisors").document(docId).set(finalSup)
     }
 
-    fun deleteAdmin(username: String, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("admins").document(username).delete()
-            .addOnSuccessListener {
-                Log.d(TAG, "Admin deleted from Firestore: $username")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to delete admin from Firestore: $username", e)
-                onFailure(e)
-            }
+    fun deleteSupervisor(supervisorId: String) {
+        firestore.collection("supervisors").document(supervisorId).delete()
     }
 
-    fun saveConfig(config: AppConfig, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        firestore.collection("app_config").document("settings").set(config)
-            .addOnSuccessListener {
-                Log.d(TAG, "Config saved to Firestore.")
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to save config to Firestore.", e)
-                onFailure(e)
-            }
-    }
-
-    fun cleanup() {
-        categoriesListener?.remove()
-        providersListener?.remove()
-        reviewsListener?.remove()
-        adminsListener?.remove()
-        configListener?.remove()
+    fun updateAppConfig(config: AppConfig) {
+        firestore.collection("config").document("singleton").set(config)
     }
 }

@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "963621716942",
-    "project_id": "yemenservices-fd56c",
-    "storage_bucket": "yemenservices-fd56c.firebasestorage.app"
+    "project_number": "123456789012",
+    "project_id": "yemenservices-app",
+    "storage_bucket": "yemenservices-app.appspot.com"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:963621716942:android:26d9c0def33083cf90a19f",
+        "mobilesdk_app_id": "1:123456789012:android:1234567890abcdef",
         "android_client_info": {
           "package_name": "com.yemenservices.app"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCpxwXZZKrN4h2AmyuEkzyat0K4LOUAXD8"
+          "current_key": "dummy_api_key_for_compilation"
         }
       ],
       "services": {
