@@ -69,6 +69,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        // Seed default categories matching user's uploaded image if empty
+        viewModelScope.launch {
+            repository.categoriesFlow.collect { list ->
+                if (list.isEmpty()) {
+                    seedDefaultCategories()
+                }
+            }
+        }
+    }
+
+    private fun seedDefaultCategories() {
+        Log.i(TAG, "Seeding default categories based on user's theme requirements.")
+        val defaults = listOf(
+            Category("cat_tech", "تقنية", "Technical Services", "phone", 0, true, "https://images.unsplash.com/photo-1518770660439-4636190af475?w=400"),
+            Category("cat_maintenance", "صيانة منزلية", "Home Maintenance", "repair", 1, true, "https://images.unsplash.com/photo-1581092921461-eab62e97a780?w=400"),
+            Category("cat_beauty", "جمال", "Beauty & Care", "star", 2, true, "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400"),
+            Category("cat_education", "تعليم", "Education", "education", 3, true, "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=400"),
+            Category("cat_home_service", "خدمات منزلية", "Home Services", "repair", 4, true, "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400"),
+            Category("cat_autos", "سيارات", "Autos & Cars", "taxi", 5, true, "https://images.unsplash.com/photo-1530046339160-ce3e5b08518e?w=400"),
+            Category("cat_professional", "خدمات مهنية", "Professional Services", "work", 6, true, "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400"),
+            Category("cat_cargo", "شحن وتوصيل", "Cargo & Shipping", "delivery", 7, true, "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=400"),
+            Category("cat_travel", "سفريات وأجرة", "Travel & Taxi", "taxi", 8, true, "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=400"),
+            Category("cat_delivery", "توصيل طلبات", "Food & Delivery", "delivery", 9, true, "https://images.unsplash.com/photo-1526367790999-015078648c7e?w=400")
+        )
+        defaults.forEach {
+            repository.saveCategory(it, {}, {})
+        }
     }
 
     // --- Helpers ---

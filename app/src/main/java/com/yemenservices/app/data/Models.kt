@@ -41,13 +41,15 @@ data class Review(
 data class AppConfig(
     var id: String = "settings",
     var footer_phone: String = "777644670",
-    var app_theme: String = "gold", // "gold", "emerald", "ocean", "purple", "sunset"
+    var app_theme: String = "gold", // "gold", "emerald", "ocean", "purple", "sunset", "classic"
     var welcome_msg_mode: String = "ai", // "ai", "custom"
     var custom_welcome_msg: String = "مرحباً بكم في دليلي للخدمات في اليمن فورياً",
     var owner_name: String = "Maher ahmed",
     var owner_phone: String = "777644670",
     var show_reviews_enabled: Boolean = true,
     var list_sort_mode: String = "date", // "custom", "name", "date"
-    var app_logo_icon: String = "work" // "work", "star", "phone", "info"
+    var app_logo_icon: String = "work", // "work", "star", "phone", "info"
+    var app_name: String = "دليلي للخدمات",
+    var app_logo_text: String = "خد"
 )
 
