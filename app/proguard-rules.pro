@@ -1,7 +1,0 @@
--keepattributes Signature,InnerClasses,EnclosingMethod
--keep class com.yemenservices.app.data.Models** { *; }
--keep class com.yemenservices.app.data.AppConfig { *; }
--keep class com.yemenservices.app.data.Category { *; }
--keep class com.yemenservices.app.data.ServiceProvider { *; }
--keep class com.yemenservices.app.data.Review { *; }
--keep class com.yemenservices.app.data.Supervisor { *; }
