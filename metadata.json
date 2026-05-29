@@ -1,5 +1,5 @@
 {
-  "name": "دليلي - Dalili",
+  "name": "دليل الخدمات",
   "description": "دليل الخدمات الأول في اليمن باللغتين العربية والإنجليزية - Dalili Service Directory in Yemen",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
