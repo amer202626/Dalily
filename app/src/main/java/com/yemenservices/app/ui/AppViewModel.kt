@@ -34,6 +34,15 @@ class AppViewModel : ViewModel() {
     private val _isArabic = MutableStateFlow(true)
     val isArabic = _isArabic.asStateFlow()
 
+    // Manual Dark Mode override (null follows system, true is dark, false is light)
+    private val _isDarkMode = MutableStateFlow<Boolean?>(null)
+    val isDarkMode = _isDarkMode.asStateFlow()
+
+    fun toggleDarkMode(systemDark: Boolean) {
+        val current = _isDarkMode.value ?: systemDark
+        _isDarkMode.value = !current
+    }
+
     // Search and Selected category filters
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()

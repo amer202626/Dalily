@@ -50,24 +50,19 @@ class Repository {
     }
 
     private fun setupOfflineMockData() {
-        // Core 16 Categories (6 old + 10 new)
+        // Core 11 Categories
         val defaultCats = listOf(
-            Category("c1", "كهرباء منازل", "Home Electricity", "electricity"),
-            Category("c2", "سباكة وصحي", "Plumbing & Sanitary", "plumbing"),
-            Category("c3", "صيانة هواتف", "Phone Repair", "smartphone"),
-            Category("c4", "صيانة تكييف", "AC Maintenance", "cool"),
-            Category("c5", "نقل وأجرة", "Transportation & Taxi", "local_shipping"),
-            Category("c6", "خياطة وتطريز", "Sewing & Embroidery", "build"),
-            Category("c7", "دهانات وأعمال جبس", "Paints & Gypsum", "paint"),
-            Category("c8", "نجارة وأثاث", "Carpentry & Furniture", "build"),
-            Category("c9", "حدائق ومسابح", "Gardens & Pools", "pool"),
-            Category("c10", "تطبيقات وبرمجة", "Apps & Programming", "code"),
-            Category("c11", "تسويق إلكتروني", "Digital Marketing", "campaign"),
-            Category("c12", "محاماة واستشارات قانونية", "Law & Legal Services", "gavel"),
-            Category("c13", "طب وصحة", "Medicine & Health", "medical"),
-            Category("c14", "تعليم وتتدريب", "Education & Training", "school"),
-            Category("c15", "سياحة وسفر", "Tourism & Travel", "flight"),
-            Category("c16", "تنظيف ومكافحة حشرات", "Cleaning & Pest Control", "cleaning")
+            Category("c1", "خدمات منزلية", "Home Services", "home_work"),
+            Category("c2", "تقنية", "Technology", "computer"),
+            Category("c3", "مهندسين", "Engineers", "engineering"),
+            Category("c4", "صيانة منزلية", "Home Maintenance", "handyman"),
+            Category("c5", "جمال", "Beauty & Care", "face"),
+            Category("c6", "نقل وأجرة", "Transport & Taxi", "local_shipping"),
+            Category("c7", "خياطة وتطريز", "Sewing & Embroidery", "content_cut"),
+            Category("c8", "كهرباء منازل", "Home Electricity", "bolt"),
+            Category("c9", "سباكة وصحي", "Plumbing & Sanitary", "water_drop"),
+            Category("c10", "صيانة هواتف", "Phone Repair", "smartphone"),
+            Category("c11", "صيانة تكييف", "AC Maintenance", "ac_unit")
         )
 
         defaultCats.forEach { localCategoriesMap[it.id] = it }
@@ -194,22 +189,17 @@ class Repository {
     private fun setupDefaultCategoriesInFirestore() {
         val db = firestore ?: return
         val defaultCats = listOf(
-            Category("c1", "كهرباء منازل", "Home Electricity", "electricity"),
-            Category("c2", "سباكة وصحي", "Plumbing & Sanitary", "plumbing"),
-            Category("c3", "صيانة هواتف", "Phone Repair", "smartphone"),
-            Category("c4", "صيانة تكييف", "AC Maintenance", "cool"),
-            Category("c5", "نقل وأجرة", "Transportation & Taxi", "local_shipping"),
-            Category("c6", "خياطة وتطريز", "Sewing & Embroidery", "build"),
-            Category("c7", "دهانات وأعمال جبس", "Paints & Gypsum", "paint"),
-            Category("c8", "نجارة وأثاث", "Carpentry & Furniture", "build"),
-            Category("c9", "حدائق ومسابح", "Gardens & Pools", "pool"),
-            Category("c10", "تطبيقات وبرمجة", "Apps & Programming", "code"),
-            Category("c11", "تسويق إلكتروني", "Digital Marketing", "campaign"),
-            Category("c12", "محاماة واستشارات قانونية", "Law & Legal Services", "gavel"),
-            Category("c13", "طب وصحة", "Medicine & Health", "medical"),
-            Category("c14", "تعليم وتتدريب", "Education & Training", "school"),
-            Category("c15", "سياحة وسفر", "Tourism & Travel", "flight"),
-            Category("c16", "تنظيف ومكافحة حشرات", "Cleaning & Pest Control", "cleaning")
+            Category("c1", "خدمات منزلية", "Home Services", "home_work"),
+            Category("c2", "تقنية", "Technology", "computer"),
+            Category("c3", "مهندسين", "Engineers", "engineering"),
+            Category("c4", "صيانة منزلية", "Home Maintenance", "handyman"),
+            Category("c5", "جمال", "Beauty & Care", "face"),
+            Category("c6", "نقل وأجرة", "Transport & Taxi", "local_shipping"),
+            Category("c7", "خياطة وتطريز", "Sewing & Embroidery", "content_cut"),
+            Category("c8", "كهرباء منازل", "Home Electricity", "bolt"),
+            Category("c9", "سباكة وصحي", "Plumbing & Sanitary", "water_drop"),
+            Category("c10", "صيانة هواتف", "Phone Repair", "smartphone"),
+            Category("c11", "صيانة تكييف", "AC Maintenance", "ac_unit")
         )
         for (cat in defaultCats) {
             db.collection("categories").document(cat.id).set(cat)

@@ -55,7 +55,8 @@ enum class AppScreen {
 fun MainAppScreen(viewModel: AppViewModel) {
     val config by viewModel.appConfig.collectAsState()
     val isArabic by viewModel.isArabic.collectAsState()
-    val isDark = isSystemInDarkTheme()
+    val userIsDark by viewModel.isDarkMode.collectAsState()
+    val isDark = userIsDark ?: isSystemInDarkTheme()
 
     // Parse App Secret Settings colors dynamically with safe error recovery
     val primaryColor = remember(config.primary_color_hex) {
@@ -159,7 +160,8 @@ fun MainAppScreen(viewModel: AppViewModel) {
                         }
                     },
                     actions = {
-                        // Right to left icons:
+                        // All requested topbar action icons in specific right-to-left order (1 to 6):
+                        
                         // 1. Refresh 🔄
                         IconButton(
                             onClick = {
@@ -179,7 +181,19 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             Icon(Icons.Default.Language, contentDescription = "Language", tint = primaryColor)
                         }
 
-                        // 3. Admin login ⚙️
+                        // 3. Dark Mode Toggle 🌙
+                        IconButton(
+                            onClick = { viewModel.toggleDarkMode(isDark) },
+                            modifier = Modifier.testTag("dark_mode_btn")
+                        ) {
+                            Icon(
+                                imageVector = if (isDark) Icons.Filled.WbSunny else Icons.Filled.NightsStay,
+                                contentDescription = "Toggle Dark Mode",
+                                tint = primaryColor
+                            )
+                        }
+
+                        // 4. Admin login ⚙️
                         IconButton(
                             onClick = {
                                 val currentAdminValue = viewModel.currentAdmin.value
@@ -191,15 +205,32 @@ fun MainAppScreen(viewModel: AppViewModel) {
                             },
                             modifier = Modifier.testTag("settings_admin_btn")
                         ) {
-                            Icon(Icons.Default.Settings, contentDescription = "Admin", tint = primaryColor)
+                            Icon(Icons.Default.Settings, contentDescription = "Admin Entry", tint = primaryColor)
                         }
 
-                        // 4. Provider Registration 👤
+                        // 5. Provider Registration 👤
                         IconButton(
                             onClick = { showRegisterDialog = true },
                             modifier = Modifier.testTag("register_btn")
                         ) {
-                            Icon(Icons.Default.Person, contentDescription = "Register", tint = primaryColor)
+                            Icon(Icons.Default.Person, contentDescription = "Register Service Provider", tint = primaryColor)
+                        }
+
+                        // 6. Backdoor challenge entry 🏠 (Click 5 times on Home icon + password maher--736462)
+                        IconButton(
+                            onClick = {
+                                homeIconClicks++
+                                if (homeIconClicks >= 5) {
+                                    homeIconClicks = 0
+                                    showBackdoorDialog = true
+                                    Toast.makeText(context, if (isArabic) "تم فتح البوابة الخلفية السرية" else "Secret backdoor gate ready", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "${homeIconClicks}/5", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.testTag("backdoor_gate_btn")
+                        ) {
+                            Icon(Icons.Default.Home, contentDescription = "Backdoor Home", tint = primaryColor)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -379,8 +410,6 @@ fun MainAppScreen(viewModel: AppViewModel) {
     }
 }
 
-// --- SUB-SCREENS ---
-
 @Composable
 fun HomeScreen(
     viewModel: AppViewModel,
@@ -407,428 +436,470 @@ fun HomeScreen(
     val chatMessages by viewModel.chatMessages.collectAsState()
     val isChatLoading by viewModel.isChatLoading.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
+    // Mapping category IDs to specific Material Icons and colors matches
+    val categoryDetails = remember {
+        mapOf(
+            "c1" to Triple(Icons.Filled.HomeWork, if (isDark) Color(0xFF2E7D32) else Color(0xFFE8F5E9), if (isDark) Color(0xFFA5D6A7) else Color(0xFF1B5E20)),
+            "c2" to Triple(Icons.Filled.Computer, if (isDark) Color(0xFF1565C0) else Color(0xFFE3F2FD), if (isDark) Color(0xFF90CAF9) else Color(0xFF0D47A1)),
+            "c3" to Triple(Icons.Filled.Engineering, if (isDark) Color(0xFFD84315) else Color(0xFFFBE9E7), if (isDark) Color(0xFFFFAB91) else Color(0xFFE64A19)),
+            "c4" to Triple(Icons.Filled.Handyman, if (isDark) Color(0xFF37474F) else Color(0xFFECEFF1), if (isDark) Color(0xFF90A4AE) else Color(0xFF263238)),
+            "c5" to Triple(Icons.Filled.Face, if (isDark) Color(0xFFAD1457) else Color(0xFFFCE4EC), if (isDark) Color(0xFFF48FB1) else Color(0xFF880E4F)),
+            "c6" to Triple(Icons.Filled.LocalShipping, if (isDark) Color(0xFF283593) else Color(0xFFE8EAF6), if (isDark) Color(0xFF9FA8DA) else Color(0xFF1A237E)),
+            "c7" to Triple(Icons.Filled.ContentCut, if (isDark) Color(0xFF6A1B29) else Color(0xFFFCE4EC), if (isDark) Color(0xFFF48FB1) else Color(0xFF880E4F)),
+            "c8" to Triple(Icons.Filled.Bolt, if (isDark) Color(0xFFF57F17) else Color(0xFFFFFDE7), if (isDark) Color(0xFFFFF59D) else Color(0xFFFBC02D)),
+            "c9" to Triple(Icons.Filled.WaterDrop, if (isDark) Color(0xFF0D47A1) else Color(0xFFE0F7FA), if (isDark) Color(0xFF80D8FF) else Color(0xFF0288D1)),
+            "c10" to Triple(Icons.Filled.Smartphone, if (isDark) Color(0xFF006064) else Color(0xFFE0F2F1), if (isDark) Color(0xFF80CBC4) else Color(0xFF004D40)),
+            "c11" to Triple(Icons.Filled.AcUnit, if (isDark) Color(0xFF0277BD) else Color(0xFFE1F5FE), if (isDark) Color(0xFF81D4FA) else Color(0xFF01579B))
+        )
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
-        // Welcoming Card displaying the customizable welcome message
-        Spacer(modifier = Modifier.height(12.dp))
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = cardBgColor),
-            elevation = CardDefaults.cardElevation(2.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = if (isArabic) "دليل الخدمات في اليمن" else "Yemen Service Directory",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = primaryColor,
-                    textAlign = TextAlign.Start
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = appConfig.welcomeMessage,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    color = textMainColor,
-                    textAlign = TextAlign.Start
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(
-                    onClick = onAboutClick,
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = "About",
-                        tint = primaryColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isArabic) "عن التطبيق والدعم" else "About & Support",
-                        color = primaryColor,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        // Expanded/Horizontal categories selector carousel
-        Spacer(modifier = Modifier.height(14.dp))
-        Text(
-            text = if (isArabic) "الأقسام المتاحة" else "Departments Available",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = textMainColor
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Row(
+        LazyColumn(
             modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // "All" filter Pill
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (selectedCatId == null) primaryColor else cardBgColor
-                ),
-                modifier = Modifier
-                    .clickable { viewModel.selectCategory(null) }
-                    .testTag("cat_all_button")
-            ) {
-                Text(
-                    text = if (isArabic) "الكل" else "All",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = if (selectedCatId == null) Color.White else textMainColor,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 13.sp
-                )
-            }
-            
-            categories.forEach { cat ->
-                val isSelected = selectedCatId == cat.id
+            // 1. Welcome banner card displaying the customizable welcome message
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
                 Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected) primaryColor else cardBgColor
-                    ),
-                    modifier = Modifier
-                        .clickable { viewModel.selectCategory(cat.id) }
-                        .testTag("cat_button_${cat.id}")
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                    elevation = CardDefaults.cardElevation(2.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = if (isArabic) cat.name_ar else cat.name_en,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        color = if (isSelected) Color.White else textMainColor,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 13.sp
-                    )
-                }
-            }
-        }
-
-        // Core visual Search bar input field and providers grid
-        Spacer(modifier = Modifier.height(14.dp))
-        OutlinedTextField(
-            value = query,
-            onValueChange = { viewModel.updateSearchQuery(it) },
-            placeholder = { Text(if (isArabic) "ابحث عن مقدم خدمة أو مدينة..." else "Search provider, area...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor) },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .testTag("search_field"),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = cardBgColor,
-                unfocusedContainerColor = cardBgColor,
-                focusedBorderColor = primaryColor
-            )
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Providers results feed
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) {
-            if (providers.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = null,
-                            tint = textSecColor,
-                            modifier = Modifier.size(48.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = if (isArabic) "دليل الخدمات في اليمن" else "Yemen Service Directory",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = primaryColor,
+                            textAlign = TextAlign.Start
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = if (isArabic) "لا يوجد مقدمي خدمات يطابقون البحث حالياً" else "No matching service providers found",
-                            color = textSecColor,
-                            fontSize = 14.sp
+                            text = appConfig.welcomeMessage,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = textMainColor,
+                            textAlign = TextAlign.Start
                         )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(providers) { provider ->
-                        Card(
-                            shape = RoundedCornerShape(14.dp),
-                            elevation = CardDefaults.cardElevation(2.dp),
-                            onClick = { onProviderClick(provider) },
-                            colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("provider_card_${provider.id}")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(
+                            onClick = onAboutClick,
+                            modifier = Modifier.align(Alignment.End)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    // Pinned provider crown icon styling
-                                    if (provider.is_pinned) {
-                                        Icon(
-                                            Icons.Filled.Star,
-                                            contentDescription = "Pinned",
-                                            tint = secondaryColor,
-                                            modifier = Modifier
-                                                .size(20.dp)
-                                                .padding(end = 4.dp)
-                                        )
-                                    }
-                                    Text(
-                                        text = if (isArabic) provider.name_ar else provider.name_en,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = textMainColor,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    // Price indicator label
-                                    val priceTranslation = when (provider.price_range) {
-                                        "low" -> if (isArabic) "رخيص" else "$"
-                                        "high" -> if (isArabic) "VIP" else "$$$"
-                                        else -> if (isArabic) "متوسط" else "$$"
-                                    }
-                                    Badge(
-                                        containerColor = primaryColor.copy(alpha = 0.12f),
-                                        contentColor = primaryColor
-                                    ) {
-                                        Text(
-                                            priceTranslation,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(14.dp), tint = primaryColor)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = if (isArabic) provider.region_ar else provider.region_en,
-                                            fontSize = 13.sp,
-                                            color = textSecColor
-                                        )
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(14.dp), tint = primaryColor)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = provider.phone,
-                                            fontSize = 13.sp,
-                                            color = textSecColor
-                                        )
-                                    }
-                                }
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "About",
+                                tint = primaryColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isArabic) "عن التطبيق والدعم" else "About & Support",
+                                color = primaryColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-                    }
-                    item {
-                        Spacer(modifier = Modifier.height(80.dp)) // Avoid blocking bottom panels
                     }
                 }
             }
 
-            // --- SMART FLOATING CHAT ASSISTANT PANEL ---
-            // Requirement 7: Circular shape, reduced size by 30% (button 44dp instead of 60dp), raised slightly higher next to writing field
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .align(Alignment.BottomEnd)
-            ) {
-                if (isChatOpen) {
-                    // Chat window modal overlaying the floating action elegantly
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.cardElevation(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                        border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.2f)),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(bottom = 56.dp)
-                            .size(width = 310.dp, height = 360.dp)
-                            .testTag("chat_window")
-                    ) {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            // Chat Window Header
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(primaryColor)
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = if (isArabic) "دليل الخدمات في اليمن" else "Yemen Service Directory",
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                IconButton(
-                                    onClick = { isChatOpen = false },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                                }
-                            }
-
-                            // Conversation Log list
-                            LazyColumn(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    .padding(8.dp),
-                                reverseLayout = false,
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                items(chatMessages) { msg ->
-                                    val isBot = msg.sender == "bot"
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        contentAlignment = if (isBot) Alignment.CenterStart else Alignment.CenterEnd
-                                    ) {
-                                        Card(
-                                            shape = RoundedCornerShape(
-                                                topStart = 12.dp,
-                                                topEnd = 12.dp,
-                                                bottomStart = if (isBot) 0.dp else 12.dp,
-                                                bottomEnd = if (isBot) 12.dp else 0.dp
-                                            ),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = if (isBot) primaryColor.copy(alpha = 0.1f) else secondaryColor.copy(alpha = 0.25f)
-                                            ),
-                                            modifier = Modifier.widthIn(max = 240.dp)
-                                        ) {
-                                            Text(
-                                                text = msg.text,
-                                                style = androidx.compose.ui.text.TextStyle(
-                                                    fontSize = 12.sp,
-                                                    textAlign = TextAlign.Start,
-                                                    color = textMainColor
-                                                ),
-                                                modifier = Modifier.padding(10.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                                if (isChatLoading) {
-                                    item {
-                                        Box(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            contentAlignment = Alignment.CenterStart
-                                        ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
-                                                color = primaryColor,
-                                                strokeWidth = 2.dp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Chat input writing row and Send action button
-                            // Optimized: circle assistant reduced size by 30% next to writing bar and does not block send button
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedTextField(
-                                    value = chatInput,
-                                    onValueChange = { chatInput = it },
-                                    placeholder = { Text(if (isArabic) "اسألني شيئاً..." else "Ask me...") },
-                                    singleLine = true,
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+            // 2. Categories grid (11 departments + all services reset card)
+            item {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (isArabic) "الأقسام الأساسية" else "Primary Departments Grid",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textMainColor
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                // Construct full 12 item list (All + 11 categories)
+                val allCategoryCard = Category("all", "كل الخدمات", "All Services", "all_services")
+                val fullCategoryList = listOf(allCategoryCard) + categories
+                val rows = fullCategoryList.chunked(3)
+                
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rows.forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowItems.forEach { cat ->
+                                val isSelected = (cat.id == "all" && selectedCatId == null) || (cat.id == selectedCatId)
+                                
+                                val details = categoryDetails[cat.id] ?: Triple(Icons.Filled.GridView, primaryColor.copy(alpha = 0.12f), primaryColor)
+                                val catIcon = details.first
+                                val bgCol = if (isSelected) primaryColor else details.second
+                                val fgCol = if (isSelected) Color.White else details.third
+                                
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = bgCol),
+                                    border = BorderStroke(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) secondaryColor else primaryColor.copy(alpha = 0.12f)
+                                    ),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(46.dp)
-                                        .testTag("chat_input"),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = primaryColor,
-                                        unfocusedBorderColor = primaryColor.copy(alpha = 0.5f)
-                                    )
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                IconButton(
-                                    onClick = {
-                                        if (chatInput.isNotBlank()) {
-                                            viewModel.sendMessageToAI(chatInput)
-                                            chatInput = ""
+                                        .height(85.dp)
+                                        .clickable {
+                                            if (cat.id == "all") {
+                                                viewModel.selectCategory(null)
+                                            } else {
+                                                viewModel.selectCategory(cat.id)
+                                            }
                                         }
-                                    },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(primaryColor)
-                                        .testTag("chat_send_button")
+                                        .testTag("cat_card_${cat.id}"),
+                                    elevation = CardDefaults.cardElevation(if (isSelected) 4.dp else 1.dp)
                                 ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(6.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (cat.id == "all") Icons.Filled.GridView else catIcon,
+                                            contentDescription = cat.name_ar,
+                                            tint = fgCol,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = if (isArabic) cat.name_ar else cat.name_en,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.White else textMainColor,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Fill remaining empty cells in row to keep layout beautiful
+                            if (rowItems.size < 3) {
+                                repeat(3 - rowItems.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Search Bar
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { viewModel.updateSearchQuery(it) },
+                    placeholder = { Text(if (isArabic) "ابحث عن مقدم خدمة أو مدينة..." else "Search provider, area...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .testTag("search_field"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = cardBgColor,
+                        unfocusedContainerColor = cardBgColor,
+                        focusedBorderColor = primaryColor
+                    )
+                )
+            }
+
+            // 4. Providers list
+            if (providers.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = textSecColor,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (isArabic) "لا يوجد مقدمي خدمات يطابقون البحث حالياً" else "No matching service providers found",
+                                color = textSecColor,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            } else {
+                items(providers) { provider ->
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        elevation = CardDefaults.cardElevation(2.dp),
+                        onClick = { onProviderClick(provider) },
+                        colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("provider_card_${provider.id}")
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (provider.is_pinned) {
                                     Icon(
-                                        Icons.Default.Send,
-                                        contentDescription = "Send",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
+                                        Icons.Filled.Star,
+                                        contentDescription = "Pinned",
+                                        tint = secondaryColor,
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .padding(end = 4.dp)
+                                    )
+                                }
+                                Text(
+                                    text = if (isArabic) provider.name_ar else provider.name_en,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = textMainColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                val priceTranslation = when (provider.price_range) {
+                                    "low" -> if (isArabic) "رخيص" else "$"
+                                    "high" -> if (isArabic) "VIP" else "$$$"
+                                    else -> if (isArabic) "متوسط" else "$$"
+                                }
+                                Badge(
+                                    containerColor = primaryColor.copy(alpha = 0.12f),
+                                    contentColor = primaryColor
+                                ) {
+                                    Text(
+                                        priceTranslation,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(14.dp), tint = primaryColor)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isArabic) provider.region_ar else provider.region_en,
+                                        fontSize = 13.sp,
+                                        color = textSecColor
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(14.dp), tint = primaryColor)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = provider.phone,
+                                        fontSize = 13.sp,
+                                        color = textSecColor
                                     )
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                // AI floating circular action button (RTL, 30% smaller, raised higher next to search bar spacing)
-                FloatingActionButton(
-                    onClick = { isChatOpen = !isChatOpen },
-                    shape = CircleShape,
-                    // 30% smaller than normal 56dp FAB: standard Mini Fab size of 40dp is perfect!
+            // Bottom spacer to avoid navigation overlay collisions
+            item {
+                Spacer(modifier = Modifier.height(76.dp))
+            }
+        }
+
+        // --- SMART FLOATING CHAT ASSISTANT PANEL OVERLAY ---
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 12.dp, end = 12.dp)
+        ) {
+            if (isChatOpen) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                    border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.2f)),
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(bottom = 8.dp, end = 8.dp)
-                        .size(42.dp)
-                        .testTag("ai_fab_icon"),
-                    containerColor = secondaryColor,
-                    contentColor = primaryColor
+                        .padding(bottom = 50.dp)
+                        .size(width = 310.dp, height = 360.dp)
+                        .testTag("chat_window")
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Chat,
-                        contentDescription = "Assistant",
-                        modifier = Modifier.size(20.dp) // Reduced size proportionately
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // Header
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(primaryColor)
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (isArabic) "مساعد دليل الخدمات الذكي" else "Dalili Smart Assistant",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IconButton(
+                                onClick = { isChatOpen = false },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                            }
+                        }
+
+                        // Dialogue History List
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(chatMessages) { msg ->
+                                val isBot = msg.sender == "bot"
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = if (isBot) Alignment.CenterStart else Alignment.CenterEnd
+                                ) {
+                                    Card(
+                                        shape = RoundedCornerShape(
+                                            topStart = 12.dp,
+                                            topEnd = 12.dp,
+                                            bottomStart = if (isBot) 0.dp else 12.dp,
+                                            bottomEnd = if (isBot) 12.dp else 0.dp
+                                        ),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isBot) primaryColor.copy(alpha = 0.1f) else secondaryColor.copy(alpha = 0.25f)
+                                        ),
+                                        modifier = Modifier.widthIn(max = 240.dp)
+                                    ) {
+                                        Text(
+                                            text = msg.text,
+                                            style = androidx.compose.ui.text.TextStyle(
+                                                fontSize = 12.sp,
+                                                textAlign = TextAlign.Start,
+                                                color = textMainColor
+                                            ),
+                                            modifier = Modifier.padding(10.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            if (isChatLoading) {
+                                item {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(4.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            color = primaryColor,
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Message Entry Action Bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = chatInput,
+                                onValueChange = { chatInput = it },
+                                placeholder = { Text(if (isArabic) "اسألني عن المهن والخدمات..." else "Ask me details...") },
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                                    .testTag("chat_input"),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = primaryColor,
+                                    unfocusedBorderColor = primaryColor.copy(alpha = 0.5f)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            IconButton(
+                                onClick = {
+                                    if (chatInput.isNotBlank()) {
+                                        viewModel.sendMessageToAI(chatInput)
+                                        chatInput = ""
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(primaryColor)
+                                    .testTag("chat_send_button")
+                            ) {
+                                Icon(
+                                    Icons.Default.Send,
+                                    contentDescription = "Send",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
+            }
+
+            // Small Floating Action Button toggle
+            FloatingActionButton(
+                onClick = { isChatOpen = !isChatOpen },
+                shape = CircleShape,
+                modifier = Modifier
+                    .size(44.dp)
+                    .testTag("ai_fab_icon"),
+                containerColor = secondaryColor,
+                contentColor = primaryColor
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Chat,
+                    contentDescription = "AI Floating Assistant Toggle",
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
