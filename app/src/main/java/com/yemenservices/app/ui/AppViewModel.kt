@@ -1,136 +1,139 @@
 package com.yemenservices.app.ui
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.yemenservices.app.data.AppConfig
-import com.yemenservices.app.data.Category
-import com.yemenservices.app.data.Review
 import com.yemenservices.app.data.Repository
-import com.yemenservices.app.data.ServiceProvider
+import com.yemenservices.app.data.YemenService
+import com.yemenservices.app.data.ServiceCategory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 
-class AppViewModel : ViewModel() {
+enum class AppScreen {
+    Home,
+    ServicesList,
+    ServiceDetails,
+    Favorites,
+    About,
+    AdminDashboard
+}
 
-    private val repository = Repository()
+class AppViewModel(application: Application) : AndroidViewModel(application) {
 
-    // Real-time states streamed directly from Repository
-    val categories: StateFlow<List<Category>> = repository.categories
-    val rawProviders: StateFlow<List<ServiceProvider>> = repository.serviceProviders
-    val pendingProviders: StateFlow<List<ServiceProvider>> = repository.pendingProviders
-    val reviews: StateFlow<List<Review>> = repository.reviews
-    val appConfig: StateFlow<AppConfig> = repository.appConfig
+    private val repository = Repository(application)
 
-    // Locale and UI state
     val isArabic = MutableStateFlow(true)
-    val isOwnerLoggedIn = MutableStateFlow(false)
-    val currentAdmin = MutableStateFlow<String?>(null) // Session holder for admin role
+    val currentScreen = MutableStateFlow(AppScreen.Home)
+    val searchQuery = MutableStateFlow("")
+    val selectedCategory = MutableStateFlow<String?>(null)
+    
+    private val _yemenServices = MutableStateFlow<List<YemenService>>(emptyList())
+    val yemenServices: StateFlow<List<YemenService>> = _yemenServices
 
-    fun toggleLanguage() {
-        isArabic.value = !isArabic.value
+    private val _favorites = MutableStateFlow<Set<String>>(emptySet())
+    val favorites: StateFlow<Set<String>> = _favorites
+
+    val selectedServiceForDetails = MutableStateFlow<YemenService?>(null)
+    val isAdminAuthenticated = MutableStateFlow(false)
+
+    // Filter logic
+    val filteredServices: StateFlow<List<YemenService>> = combine(
+        _yemenServices,
+        searchQuery,
+        selectedCategory
+    ) { services, query, category ->
+        services.filter { service ->
+            val matchCategory = category == null || service.category == category
+            val matchQuery = query.isBlank() || 
+                service.nameAr.contains(query, ignoreCase = true) ||
+                service.nameEn.contains(query, ignoreCase = true) ||
+                service.phoneNumber.contains(query, ignoreCase = true) ||
+                service.descriptionAr.contains(query, ignoreCase = true) ||
+                service.descriptionEn.contains(query, ignoreCase = true)
+            matchCategory && matchQuery
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val categories: List<ServiceCategory> = repository.getCategories()
+
+    init {
+        loadData()
     }
 
-    fun loginAdmin(pin: String): Boolean {
-        // Simple secure admin login for management panel (can use "1234" or "7777" for backyard access)
-        return if (pin == "1234" || pin == "777777777" || pin == "2026") {
-            isOwnerLoggedIn.value = true
-            currentAdmin.value = "admin_session"
+    fun loadData() {
+        _yemenServices.value = repository.getServices()
+        _favorites.value = repository.getFavorites()
+    }
+
+    fun toggleFavorite(id: String) {
+        viewModelScope.launch {
+            repository.toggleFavorite(id)
+            _favorites.value = repository.getFavorites()
+        }
+    }
+
+    fun isFavorite(id: String): Boolean {
+        return _favorites.value.contains(id)
+    }
+
+    fun saveService(
+        id: String?,
+        nameAr: String,
+        nameEn: String,
+        category: String,
+        phone: String,
+        whatsapp: String,
+        addressAr: String,
+        addressEn: String,
+        descriptionAr: String,
+        descriptionEn: String
+    ) {
+        val finalId = id ?: UUID.randomUUID().toString()
+        val service = YemenService(
+            id = finalId,
+            nameAr = nameAr,
+            nameEn = nameEn,
+            category = category,
+            phoneNumber = phone,
+            whatsappNumber = whatsapp,
+            addressAr = addressAr,
+            addressEn = addressEn,
+            descriptionAr = descriptionAr,
+            descriptionEn = descriptionEn,
+            rating = 4.5f
+        )
+        repository.saveService(service)
+        loadData()
+    }
+
+    fun deleteService(id: String) {
+        repository.deleteService(id)
+        loadData()
+    }
+
+    fun resetToDefaults() {
+        repository.resetToDefaults()
+        loadData()
+    }
+
+    fun authenticateAdmin(code: String): Boolean {
+        return if (code.trim() == "ADMIN123" || code.trim() == "12345") {
+            isAdminAuthenticated.value = true
             true
         } else {
             false
         }
     }
 
-    fun logoutAdmin() {
-        isOwnerLoggedIn.value = false
-        currentAdmin.value = null
-    }
-
-    fun addCategory(category: Category) {
-        viewModelScope.launch {
-            repository.addCategory(category)
+    fun logOutAdmin() {
+        isAdminAuthenticated.value = false
+        if (currentScreen.value == AppScreen.AdminDashboard) {
+            currentScreen.value = AppScreen.Home
         }
-    }
-
-    fun deleteCategory(id: String) {
-        viewModelScope.launch {
-            repository.deleteCategory(id)
-        }
-    }
-
-    fun registerProfessional(
-        name: String,
-        phone: String,
-        whatsapp: String,
-        email: String,
-        descAr: String,
-        descEn: String,
-        categoryId: String,
-        priceLevel: String,
-        addressAr: String,
-        addressEn: String,
-        profileImage: String? // Personal photo link
-    ) {
-        viewModelScope.launch {
-            val provider = ServiceProvider(
-                id = "",
-                name = name,
-                phone = phone,
-                whatsapp = whatsapp,
-                email = email,
-                description_ar = descAr,
-                description_en = descEn,
-                category_id = categoryId,
-                rating = 5.0f,
-                price_level = priceLevel,
-                distance = (1..5).random().toString(), // Random initial distance
-                address_ar = addressAr,
-                address_en = addressEn,
-                is_approved = false,
-                profileImage = if (profileImage?.isNotBlank() == true) profileImage else null,
-                rating_count = 1
-            )
-            // Save to pending collection first so the administrator can approve it
-            repository.addServiceProvider(provider, isApproved = false)
-        }
-    }
-
-    fun approveProvider(provider: ServiceProvider) {
-        viewModelScope.launch {
-            repository.approveServiceProvider(provider)
-        }
-    }
-
-    fun deleteProvider(id: String, isApproved: Boolean) {
-        viewModelScope.launch {
-            repository.deleteServiceProvider(id, isApproved = isApproved)
-        }
-    }
-
-    fun submitReview(providerId: String, reviewerName: String, rating: Float, comment: String) {
-        viewModelScope.launch {
-            val rev = Review(
-                id = "",
-                provider_id = providerId,
-                reviewer_name = if (reviewerName.isNotBlank()) reviewerName else "مستعلم",
-                rating = rating,
-                comment = comment,
-                timestamp = System.currentTimeMillis()
-            )
-            repository.submitReview(rev)
-        }
-    }
-
-    fun updateSystemConfig(config: AppConfig) {
-        viewModelScope.launch {
-            repository.updateAppConfig(config)
-        }
-    }
-
-    fun refresh() {
-        // Real-time snapshot listeners keep states perfectly matched automatically, so refresh is simple.
     }
 }
