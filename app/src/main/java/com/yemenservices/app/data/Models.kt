@@ -8,7 +8,8 @@ data class Category(
     val name_ar: String = "",
     val name_en: String = "",
     val icon: String = "",
-    val image_url: String? = null
+    val image_url: String? = null,
+    val parent_id: String? = null
 )
 
 @Serializable

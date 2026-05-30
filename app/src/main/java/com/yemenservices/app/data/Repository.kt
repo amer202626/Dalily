@@ -43,7 +43,7 @@ class Repository {
         try {
             firestore = FirebaseFirestore.getInstance()
             setupRealtimeListeners()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("DaliliRepo", "Firebase not initialized, defaulting to high-fidelity offline mockup database. ${e.message}")
             setupOfflineMockData()
         }

@@ -8,7 +8,7 @@ class DaliliApplication : Application() {
         super.onCreate()
         try {
             FirebaseApp.initializeApp(this)
-        } catch (e: java.lang.Exception) {
+        } catch (e: Throwable) {
             // Prevent crashes in offline preview simulators where play services are not present
         }
     }

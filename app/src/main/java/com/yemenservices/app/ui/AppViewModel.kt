@@ -169,6 +169,35 @@ class AppViewModel : ViewModel() {
     }
 
     // --- Gemini Interactive Help ---
+    private fun getOfflineAnswer(prompt: String, footerPhone: String, categoriesText: String): String? {
+        val p = prompt.trim().lowercase()
+        val isAr = _isArabic.value
+        return when {
+            p.contains("أقسام") || p.contains("اقسام") || p.contains("قسم") || p.contains("categories") || p.contains("category") || p.contains("ماهي الأقسام") || p.contains("ما هي الاقسام") -> {
+                if (isAr) {
+                    "الأقسام المتاحة حالياً في التطبيق هي: $categoriesText. يمكنك الضغط على أي قسم في الشاشة الرئيسية لعرض المحترفين المسجلين به وتصفية مهاراتهم."
+                } else {
+                    "The available categories currently are: $categoriesText. You can tap on any category to view its registered professional service providers."
+                }
+            }
+            p.contains("كيف أتصل") || p.contains("كيف اتصل") || p.contains("بالاتصال") || p.contains("تواصل") || p.contains("طريقة الاتصال") || p.contains("اتصال") || p.contains("contact") || p.contains("call") -> {
+                if (isAr) {
+                    "لتسهيل تواصلك مع مقدمي الخدمات باليمن، تجد داخل صفحة مقدم الخدمة أزراراً سريعة للتواصل بلمسة واحدة:\n📞 زر الاتصال الهاتفي المباشر\n💬 زر مراسلة واتساب الفورية\n✉️ زر الرسائل النصية القصيرة SMS\n🗺️ ومؤخراً تمت إضافة الموقع الجغرافي وخريطة تفاعلية لتسهيل تحديد المكان بدقة عالية."
+                } else {
+                    "To easily contact any service provider in Yemen, use the direct touch-to-communicate buttons in the provider's profile:\n📞 Direct Phone Call\n💬 Instant WhatsApp Chat\n✉️ SMS Text Messages\n🗺️ We have also integrated dynamic Google Maps view with navigation guidelines."
+                }
+            }
+            p.contains("رقم الدعم") || p.contains("دعم") || p.contains("رقم التواصل") || p.contains("تلفون") || p.contains("هاتف") || p.contains("support") || p.contains("phone") || p.contains("help") -> {
+                if (isAr) {
+                    "رقم التواصل والدعم الفني المباشر لتطبيق دليل الخدمات هو: $footerPhone. نحن هنا لخدمتكم ومساعدتكم على مدار الساعة."
+                } else {
+                    "The customer support and help line number for Dalili is: $footerPhone. Contact us anytime if you face issues."
+                }
+            }
+            else -> null
+        }
+    }
+
     fun sendMessageToAI(userPrompt: String) {
         if (userPrompt.isBlank()) return
         
@@ -176,7 +205,7 @@ class AppViewModel : ViewModel() {
         newList.add(ChatMessage("user", userPrompt))
         _chatMessages.value = newList
         _isChatLoading.value = true
-
+ 
         viewModelScope.launch {
             val systemContext = """
                 أنت مساعد ذكي مدمج في تطبيق "دليل الخدمات في اليمن" (Dalili) المطور بواسطة المهندس والمشرف ماهر.
@@ -187,8 +216,16 @@ class AppViewModel : ViewModel() {
                 رقم التواصل والدعم الفني: ${appConfig.value.footer_phone}
                 عدد الأقسام المتاحة: ${categories.value.size} أقسام.
             """.trimIndent()
-
-            val aiResponse = geminiService.getAssistantResponse(userPrompt, systemContext)
+ 
+            val categoryNames = categories.value.joinToString("، ") { if (_isArabic.value) it.name_ar else it.name_en }
+            val localAnswer = getOfflineAnswer(userPrompt, appConfig.value.footer_phone, categoryNames)
+            
+            val aiResponse = if (localAnswer != null) {
+                localAnswer
+            } else {
+                geminiService.getAssistantResponse(userPrompt, systemContext)
+            }
+            
             _isChatLoading.value = false
             
             val updatedList = _chatMessages.value.toMutableList()
