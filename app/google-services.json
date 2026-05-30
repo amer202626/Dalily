@@ -1,0 +1,28 @@
+{
+  "project_info": {
+    "project_number": "528069114123",
+    "project_id": "yemenservices-fd56c",
+    "storage_bucket": "yemenservices-fd56c.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:528069114123:android:2f778ea2c81da5ea6e49bb",
+        "android_client_info": {
+          "package_name": "com.yemenservices.app"
+        }
+      },
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpxwXZZKrN4h2AmyuEkzyat0K4LOUAXD8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
