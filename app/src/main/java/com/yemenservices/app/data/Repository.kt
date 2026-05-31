@@ -2,13 +2,15 @@ package com.yemenservices.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 
 class Repository(context: Context) {
 
+    private val firestore = FirebaseFirestore.getInstance()
     private val sharedPrefs: SharedPreferences = context.getSharedPreferences("dalili_prefs", Context.MODE_PRIVATE)
-    private val json = Json { ignoreUnknownKeys = true }
 
     private val defaultCategories = listOf(
         ServiceCategory("emergency", "الطوارئ", "Emergency", "emergency"),
@@ -162,41 +164,47 @@ class Repository(context: Context) {
         )
     )
 
-    init {
-        // Load defaults if empty
-        if (!sharedPrefs.contains("is_initialized")) {
-            sharedPrefs.edit()
-                .putString("services", json.encodeToString(defaultServices))
-                .putBoolean("is_initialized", true)
-                .apply()
+    fun getCategories(): List<ServiceCategory> = defaultCategories
+
+    // Real-time Firestore snapshot listener
+    fun listenToServicesFlow(): Flow<List<YemenService>> = callbackFlow {
+        val listenerRegistration = firestore.collection("services")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    if (snapshot.isEmpty) {
+                        // Seed database with defaults if empty
+                        initializeDefaultServicesInFirestore()
+                    } else {
+                        val servicesList = snapshot.documents.mapNotNull { doc ->
+                            doc.toObject(YemenService::class.java)?.copy(id = doc.id)
+                        }
+                        trySend(servicesList)
+                    }
+                }
+            }
+        awaitClose {
+            listenerRegistration.remove()
         }
     }
 
-    fun getCategories(): List<ServiceCategory> = defaultCategories
-
-    fun getServices(): List<YemenService> {
-        val jsonStr = sharedPrefs.getString("services", null) ?: return defaultServices
-        return try {
-            json.decodeFromString(jsonStr)
-        } catch (e: Exception) {
-            defaultServices
+    private fun initializeDefaultServicesInFirestore() {
+        for (service in defaultServices) {
+            firestore.collection("services").document(service.id).set(service)
         }
     }
 
     fun saveService(service: YemenService) {
-        val current = getServices().toMutableList()
-        val index = current.indexOfFirst { it.id == service.id }
-        if (index >= 0) {
-            current[index] = service
-        } else {
-            current.add(service)
-        }
-        sharedPrefs.edit().putString("services", json.encodeToString(current)).apply()
+        val docId = if (service.id.isBlank()) firestore.collection("services").document().id else service.id
+        val finalService = service.copy(id = docId)
+        firestore.collection("services").document(docId).set(finalService)
     }
 
     fun deleteService(id: String) {
-        val current = getServices().filterNot { it.id == id }
-        sharedPrefs.edit().putString("services", json.encodeToString(current)).apply()
+        firestore.collection("services").document(id).delete()
     }
 
     fun getFavorites(): Set<String> {
@@ -215,8 +223,17 @@ class Repository(context: Context) {
 
     fun resetToDefaults() {
         sharedPrefs.edit()
-            .putString("services", json.encodeToString(defaultServices))
             .putStringSet("favorites", emptySet())
             .apply()
+
+        // Wipe firestore collection and re-seed
+        firestore.collection("services").get().addOnSuccessListener { snapshot ->
+            if (snapshot != null) {
+                for (doc in snapshot.documents) {
+                    doc.reference.delete()
+                }
+            }
+            initializeDefaultServicesInFirestore()
+        }
     }
 }

@@ -4,11 +4,11 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class YemenService(
-    val id: String,
-    val nameAr: String,
-    val nameEn: String,
-    val category: String, // "emergency", "medical", "finance", "transport", "government", "education"
-    val phoneNumber: String,
+    val id: String = "",
+    val nameAr: String = "",
+    val nameEn: String = "",
+    val category: String = "", // "emergency", "medical", "finance", "transport", "government", "education"
+    val phoneNumber: String = "",
     val whatsappNumber: String = "",
     val addressAr: String = "",
     val addressEn: String = "",
@@ -19,8 +19,8 @@ data class YemenService(
 
 @Serializable
 data class ServiceCategory(
-    val id: String,
-    val nameAr: String,
-    val nameEn: String,
-    val iconName: String
+    val id: String = "",
+    val nameAr: String = "",
+    val nameEn: String = "",
+    val iconName: String = ""
 )

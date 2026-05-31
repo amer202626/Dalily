@@ -62,18 +62,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val categories: List<ServiceCategory> = repository.getCategories()
 
     init {
-        loadData()
+        // Collect real-time services with Firestore snapshot listener
+        viewModelScope.launch {
+            repository.listenToServicesFlow().collect { services ->
+                _yemenServices.value = services
+                // If a service details screen is open, keep the active service in sync with any edits!
+                val currentDetails = selectedServiceForDetails.value
+                if (currentDetails != null) {
+                    selectedServiceForDetails.value = services.find { it.id == currentDetails.id }
+                }
+            }
+        }
+        loadFavorites()
     }
 
-    fun loadData() {
-        _yemenServices.value = repository.getServices()
+    fun loadFavorites() {
         _favorites.value = repository.getFavorites()
     }
 
     fun toggleFavorite(id: String) {
         viewModelScope.launch {
             repository.toggleFavorite(id)
-            _favorites.value = repository.getFavorites()
+            loadFavorites()
         }
     }
 
@@ -108,21 +118,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             rating = 4.5f
         )
         repository.saveService(service)
-        loadData()
     }
 
     fun deleteService(id: String) {
         repository.deleteService(id)
-        loadData()
     }
 
     fun resetToDefaults() {
         repository.resetToDefaults()
-        loadData()
+        loadFavorites()
     }
 
-    fun authenticateAdmin(code: String): Boolean {
-        return if (code.trim() == "ADMIN123" || code.trim() == "12345") {
+    // Standard Login
+    fun authenticateAdmin(user: String, pass: String): Boolean {
+        return if (user.trim() == "WAM2026" && pass.trim() == "maher736462") {
+            isAdminAuthenticated.value = true
+            true
+        } else {
+            false
+        }
+    }
+
+    // Backdoor secret login (triggered by clicking app logo/icon 5 times)
+    fun authenticateBackdoor(code: String): Boolean {
+        return if (code.trim() == "maher--736462") {
             isAdminAuthenticated.value = true
             true
         } else {

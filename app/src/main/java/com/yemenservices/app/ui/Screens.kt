@@ -14,8 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,18 +48,48 @@ fun MainScreen(viewModel: AppViewModel) {
     val isAdminAuth by viewModel.isAdminAuthenticated.collectAsState()
 
     var showAdminLoginDialog by remember { mutableStateOf(false) }
-    var adminCodeInput by remember { mutableStateOf("") }
+    var adminUsernameInput by remember { mutableStateOf("") }
+    var adminPasswordInput by remember { mutableStateOf("") }
     var loginError by remember { mutableStateOf(false) }
+
+    // Backdoor secret entry states
+    var showBackdoorDialog by remember { mutableStateOf(false) }
+    var backdoorPassInput by remember { mutableStateOf("") }
+    var backdoorError by remember { mutableStateOf(false) }
+    var logoTapCount by remember { mutableStateOf(0) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = if (isAr) "دليل الخدمات اليمني" else "Yemen Services Directory",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                logoTapCount++
+                                if (logoTapCount >= 5) {
+                                    logoTapCount = 0
+                                    showBackdoorDialog = true
+                                }
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Construction,
+                            contentDescription = "Logo",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .padding(end = 6.dp)
+                        )
+                        Text(
+                            text = if (isAr) "دليل الخدمات اليمني" else "Yemen Services Directory",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                    }
                 },
                 actions = {
                     // Quick Language Switch Toggle Button
@@ -88,7 +116,8 @@ fun MainScreen(viewModel: AppViewModel) {
                                     Toast.LENGTH_SHORT
                                 ).show()
                             } else {
-                                adminCodeInput = ""
+                                adminUsernameInput = ""
+                                adminPasswordInput = ""
                                 loginError = false
                                 showAdminLoginDialog = true
                             }
@@ -176,44 +205,55 @@ fun MainScreen(viewModel: AppViewModel) {
         }
     }
 
-    // Admin login dialog
+    // Standard Admin login dialog
     if (showAdminLoginDialog) {
         AlertDialog(
             onDismissRequest = { showAdminLoginDialog = false },
             title = {
                 Text(
                     text = if (isAr) "تسجيل الدخول للإشراف" else "Admin Login",
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Column {
                     Text(
-                        text = if (isAr) "الرمز الافتراضي هو ADMIN123" else "The default passcode is ADMIN123",
-                        fontSize = 12.sp,
+                        text = if (isAr) "الرجاء إدخال بيانات حساب المشرف المعتمد للتحكم وعمليات الصيانة مباشرة." else "Please enter authorized admin credentials to proceed.",
+                        fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.padding(bottom = 8.dp)
+                        modifier = Modifier.padding(bottom = 12.dp)
                     )
                     OutlinedTextField(
-                        value = adminCodeInput,
+                        value = adminUsernameInput,
                         onValueChange = {
-                            adminCodeInput = it
+                            adminUsernameInput = it
                             loginError = false
                         },
-                        label = { Text(if (isAr) "الرمز السري" else "Passcode") },
+                        label = { Text(if (isAr) "اسم المستخدم" else "Username") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = adminPasswordInput,
+                        onValueChange = {
+                            adminPasswordInput = it
+                            loginError = false
+                        },
+                        label = { Text(if (isAr) "كلمة المرور" else "Password") },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         isError = loginError,
                         singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("admin_pass_input")
+                        modifier = Modifier.fillMaxWidth()
                     )
                     if (loginError) {
                         Text(
-                            text = if (isAr) "الرمز خاطئ، حاول مجدداً" else "Incorrect code, try again",
+                            text = if (isAr) "بيانات الدخول خاطئة، يرجى المحاولة مرة أخرى" else "Incorrect credentials, please try again",
                             color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             modifier = Modifier.padding(top = 4.dp)
                         )
                     }
@@ -222,9 +262,11 @@ fun MainScreen(viewModel: AppViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        val success = viewModel.authenticateAdmin(adminCodeInput)
+                        val success = viewModel.authenticateAdmin(adminUsernameInput, adminPasswordInput)
                         if (success) {
                             showAdminLoginDialog = false
+                            adminUsernameInput = ""
+                            adminPasswordInput = ""
                             viewModel.currentScreen.value = AppScreen.AdminDashboard
                             Toast.makeText(
                                 context,
@@ -241,6 +283,77 @@ fun MainScreen(viewModel: AppViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showAdminLoginDialog = false }) {
+                    Text(if (isAr) "إلغاء" else "Cancel")
+                }
+            }
+        )
+    }
+
+    // Secret Backdoor dialog (triggered by 5 taps)
+    if (showBackdoorDialog) {
+        AlertDialog(
+            onDismissRequest = { showBackdoorDialog = false },
+            title = {
+                Text(
+                    text = if (isAr) "بوابة الدخول الخلفية للتحكم" else "Backdoor Portal Entry",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = if (isAr) "أدخل الرمز السري المطور للولوج الفوري والسريع للوحة المشرف دون قيود." else "Enter backdoor developer code to access admin settings instantly.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    OutlinedTextField(
+                        value = backdoorPassInput,
+                        onValueChange = {
+                            backdoorPassInput = it
+                            backdoorError = false
+                        },
+                        label = { Text(if (isAr) "الرمز السري الخلفي" else "Backdoor Passcode") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        isError = backdoorError,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (backdoorError) {
+                        Text(
+                            text = if (isAr) "الرمز غير صحيح!" else "Passcode incorrect!",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val success = viewModel.authenticateBackdoor(backdoorPassInput)
+                        if (success) {
+                            showBackdoorDialog = false
+                            backdoorPassInput = ""
+                            viewModel.currentScreen.value = AppScreen.AdminDashboard
+                            Toast.makeText(
+                                context,
+                                if (isAr) "تم المصادقة عبر الموثق المباشر!" else "Authenticated via developer portal!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            backdoorError = true
+                        }
+                    }
+                ) {
+                    Text(if (isAr) "تأكيد" else "Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBackdoorDialog = false }) {
                     Text(if (isAr) "إلغاء" else "Cancel")
                 }
             }
@@ -280,9 +393,9 @@ fun HomeScreen(viewModel: AppViewModel, isAr: Boolean) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = if (isAr) 
-                        "ابحث عن أرقام الطوارئ والمستشفيات، البنوك، النقل والخدمات في اليمن بشكل كامل دون الحاجة للإنترنت وبسرعة فائقة."
+                        "تصفح وابحث عن أرقام الطوارئ، المستشفيات، البنوك، النقل والخدمات في اليمن بشكل كامل ومباشر مع ميزة المزامنة السحابية الفورية واللحظية لجميع البيانات."
                     else 
-                        "Easily find emergency contacts, medical services, banks, transport companies and local facilities in Yemen, offline and securely.",
+                        "Browse and find emergency contacts, medical facilities, banks, travel resources and services in Yemen, instantly synchronized in real-time.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     lineHeight = 18.sp,
@@ -481,7 +594,7 @@ fun ServicesListScreen(viewModel: AppViewModel, isAr: Boolean) {
         ) {
             if (!isAr) {
                 IconButton(onClick = { viewModel.currentScreen.value = AppScreen.Home }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                 }
                 Text(
                     text = category?.nameEn ?: "Services",
@@ -496,7 +609,7 @@ fun ServicesListScreen(viewModel: AppViewModel, isAr: Boolean) {
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = { viewModel.currentScreen.value = AppScreen.Home }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
+                    Icon(Icons.Default.ArrowBack, contentDescription = "رجوع")
                 }
             }
         }
@@ -725,7 +838,7 @@ fun ServiceDetailsScreen(service: YemenService?, viewModel: AppViewModel, isAr: 
         ) {
             if (!isAr) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
@@ -741,7 +854,7 @@ fun ServiceDetailsScreen(service: YemenService?, viewModel: AppViewModel, isAr: 
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
+                    Icon(Icons.Default.ArrowBack, contentDescription = "رجوع")
                 }
             }
         }
@@ -1021,13 +1134,13 @@ fun AboutScreen(viewModel: AppViewModel, isAr: Boolean) {
 
         item {
             Text(
-                text = if (isAr) "دليل الخدمات اليمني غير المتصل" else "Yemeni Local Services Directory",
+                text = if (isAr) "دليل الخدمات اليمني السحابي" else "Yemeni Cloud Services Directory",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "Version 1.0.0 (Clean Offline Edition)",
+                text = "Version 2.0.0 (Firebase Cloud Sync Edition)",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray,
                 modifier = Modifier.padding(top = 4.dp)
@@ -1052,9 +1165,9 @@ fun AboutScreen(viewModel: AppViewModel, isAr: Boolean) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = if (isAr) 
-                            "نهدف إلى تسهيل الوصول المجاني والكامل لأرقام الهواتف، العناوين، وقنوات الاتصال بالطوارئ والخدمات الطبية والتجارية والمالية والحكومية الهامة داخل الجمهورية اليمنية دون الحاجة الماسة للوصول لشبكة الإنترنت."
+                            "نهدف إلى تسهيل الوصول المجانية والكاملة لأرقام الهواتف، العناوين، وقنوات الاتصال بالطوارئ والخدمات الطبية والتجارية والمالية والحكومية الهامة داخل الجمهورية اليمنية وتزامنها بشكل فوري ولحظي بين جميع المستخدمين المتصلين بالشبكة."
                         else 
-                            "This application aims to democratize access to core public services, fire and medical care hotlines, banking systems, and ministries in Yemen. It runs 100% offline with zero remote tracker requirements.",
+                            "This application aims to facilitate complete, free access to phone directories, emergency hotlines, banks, transport, and government infrastructure services in Yemen, securely and instantly synchronized in real-time.",
                         style = MaterialTheme.typography.bodyMedium,
                         lineHeight = 22.sp,
                         textAlign = if (isAr) TextAlign.Right else TextAlign.Left,
@@ -1074,7 +1187,7 @@ fun AboutScreen(viewModel: AppViewModel, isAr: Boolean) {
                     horizontalAlignment = if (isAr) Alignment.End else Alignment.Start
                 ) {
                     Text(
-                        text = if (isAr) "بيان حماية وسلامة البيانات" else "Data Privacy Statement",
+                        text = if (isAr) "تزامن البيانات السحابي الفوري" else "Real-time Cloud Synchronization",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary
@@ -1082,9 +1195,9 @@ fun AboutScreen(viewModel: AppViewModel, isAr: Boolean) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = if (isAr) 
-                            "تم إزالة كافة خدمات التتبع السحابية وقواعد البيانات البعيدة مثل Firebase Firestore و Supabase بالكامل التزاماً بحق الخصوصية وضماناً لسرعة وأمان التطبيق بالكامل محلياً على جهازك."
+                            "يعتمد التطبيق على قاعدة بيانات سحابية آمنة ومفتوحة بالكامل باستخدام Firebase Firestore لتأمين خدمات متزامنة وفورية لجميع الأجهزة والبيانات في نفس اللحظة وبأعلى معايير الأداء والسرعة."
                         else 
-                            "All cloud database servers and remote logging modules like Firebase Firestore or Supabase have been entirely removed to respect your user privacy and prevent data tracking.",
+                            "The application leverages a secure, highly-optimized Firebase Firestore cloud database, enabling instant real-time synchronization and low-latency updates across all devices seamlessly.",
                         style = MaterialTheme.typography.bodySmall,
                         lineHeight = 18.sp,
                         textAlign = if (isAr) TextAlign.Right else TextAlign.Left,

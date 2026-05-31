@@ -7,9 +7,10 @@ plugins {
 android {
     namespace = "com.yemenservices.app"
     compileSdk = 34
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
-        applicationId = "com.yemenservices.app"
+        applicationId = "com.yemeniservices.app"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
@@ -62,6 +63,9 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+
+    // Firebase
+    implementation("com.google.firebase:firebase-firestore:25.0.0")
 
     testImplementation("junit:junit:4.13.2")
 }
