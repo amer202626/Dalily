@@ -67,5 +67,8 @@ dependencies {
     // Firebase
     implementation("com.google.firebase:firebase-firestore:25.0.0")
 
+    // Image loading
+    implementation("io.coil-kt:coil-compose:2.5.0")
+
     testImplementation("junit:junit:4.13.2")
 }

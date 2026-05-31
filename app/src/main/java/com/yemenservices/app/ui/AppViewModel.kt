@@ -35,18 +35,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _yemenServices = MutableStateFlow<List<YemenService>>(emptyList())
     val yemenServices: StateFlow<List<YemenService>> = _yemenServices
 
+    private val _categories = MutableStateFlow<List<ServiceCategory>>(emptyList())
+    val categories: StateFlow<List<ServiceCategory>> = combine(_categories, isArabic) { cats, isAr ->
+        cats.sortedWith(compareByDescending<ServiceCategory> { it.isPinned }
+            .thenBy { it.orderIndex }
+            .thenBy { if (isAr) it.nameAr else it.nameEn })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val welcomeConfig = MutableStateFlow(com.yemenservices.app.data.WelcomeConfig())
+
     private val _favorites = MutableStateFlow<Set<String>>(emptySet())
     val favorites: StateFlow<Set<String>> = _favorites
 
     val selectedServiceForDetails = MutableStateFlow<YemenService?>(null)
+    val activeComments = MutableStateFlow<List<com.yemenservices.app.data.ServiceComment>>(emptyList())
+    private var commentsJob: kotlinx.coroutines.Job? = null
+
+    fun selectServiceForDetails(service: YemenService?) {
+        selectedServiceForDetails.value = service
+        commentsJob?.cancel()
+        if (service != null) {
+            commentsJob = viewModelScope.launch {
+                repository.listenToCommentsFlow(service.id).collect { comments ->
+                    activeComments.value = comments
+                }
+            }
+        } else {
+            activeComments.value = emptyList()
+        }
+    }
+
     val isAdminAuthenticated = MutableStateFlow(false)
 
-    // Filter logic
+    // Filter and Sort logic
     val filteredServices: StateFlow<List<YemenService>> = combine(
         _yemenServices,
         searchQuery,
-        selectedCategory
-    ) { services, query, category ->
+        selectedCategory,
+        isArabic
+    ) { services, query, category, isAr ->
         services.filter { service ->
             val matchCategory = category == null || service.category == category
             val matchQuery = query.isBlank() || 
@@ -56,10 +83,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 service.descriptionAr.contains(query, ignoreCase = true) ||
                 service.descriptionEn.contains(query, ignoreCase = true)
             matchCategory && matchQuery
-        }
+        }.sortedWith(compareByDescending<YemenService> { it.isPinned }
+            .thenBy { it.orderIndex }
+            .thenBy { if (isAr) it.nameAr else it.nameEn })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val categories: List<ServiceCategory> = repository.getCategories()
 
     init {
         // Collect real-time services with Firestore snapshot listener
@@ -69,10 +96,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // If a service details screen is open, keep the active service in sync with any edits!
                 val currentDetails = selectedServiceForDetails.value
                 if (currentDetails != null) {
-                    selectedServiceForDetails.value = services.find { it.id == currentDetails.id }
+                    val updated = services.find { it.id == currentDetails.id }
+                    if (updated != null && updated != currentDetails) {
+                        selectedServiceForDetails.value = updated
+                    }
                 }
             }
         }
+
+        // Collect real-time categories with Firestore snapshot listener
+        viewModelScope.launch {
+            repository.listenToCategoriesFlow().collect { cats ->
+                _categories.value = cats
+            }
+        }
+
+        // Collect real-time Welcome configuration
+        viewModelScope.launch {
+            repository.listenToWelcomeConfigFlow().collect { config ->
+                welcomeConfig.value = config
+            }
+        }
+
         loadFavorites()
     }
 
@@ -101,7 +146,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         addressAr: String,
         addressEn: String,
         descriptionAr: String,
-        descriptionEn: String
+        descriptionEn: String,
+        isPinned: Boolean = false,
+        orderIndex: Int = 0
     ) {
         val finalId = id ?: UUID.randomUUID().toString()
         val service = YemenService(
@@ -115,13 +162,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             addressEn = addressEn,
             descriptionAr = descriptionAr,
             descriptionEn = descriptionEn,
-            rating = 4.5f
+            rating = 4.5f,
+            isPinned = isPinned,
+            orderIndex = orderIndex
         )
         repository.saveService(service)
     }
 
     fun deleteService(id: String) {
         repository.deleteService(id)
+    }
+
+    fun saveCategory(category: ServiceCategory) {
+        repository.saveCategory(category)
+    }
+
+    fun deleteCategory(id: String) {
+        repository.deleteCategory(id)
+    }
+
+    fun saveWelcomeConfig(config: com.yemenservices.app.data.WelcomeConfig) {
+        repository.saveWelcomeConfig(config)
+    }
+
+    fun addComment(serviceId: String, authorName: String, text: String, rating: Float) {
+        val comment = com.yemenservices.app.data.ServiceComment(
+            id = UUID.randomUUID().toString(),
+            serviceId = serviceId,
+            authorName = authorName,
+            commentText = text,
+            rating = rating,
+            timestamp = System.currentTimeMillis()
+        )
+        repository.saveComment(comment)
+    }
+
+    fun deleteComment(id: String) {
+        repository.deleteComment(id)
+    }
+
+    fun updateComment(comment: com.yemenservices.app.data.ServiceComment) {
+        repository.saveComment(comment)
     }
 
     fun resetToDefaults() {

@@ -166,6 +166,107 @@ class Repository(context: Context) {
 
     fun getCategories(): List<ServiceCategory> = defaultCategories
 
+    // Real-time Firestore snapshot listener for categories
+    fun listenToCategoriesFlow(): Flow<List<ServiceCategory>> = callbackFlow {
+        val listenerRegistration = firestore.collection("categories")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    if (snapshot.isEmpty) {
+                        // Seed default categories
+                        for (cat in defaultCategories) {
+                            firestore.collection("categories").document(cat.id).set(cat)
+                        }
+                    } else {
+                        val categoriesList = snapshot.documents.mapNotNull { doc ->
+                            doc.toObject(ServiceCategory::class.java)?.copy(id = doc.id)
+                        }
+                        trySend(categoriesList)
+                    }
+                }
+            }
+        awaitClose {
+            listenerRegistration.remove()
+        }
+    }
+
+    fun saveCategory(category: ServiceCategory) {
+        val docId = if (category.id.isBlank()) firestore.collection("categories").document().id else category.id
+        val finalCat = category.copy(id = docId)
+        firestore.collection("categories").document(docId).set(finalCat)
+    }
+
+    fun deleteCategory(id: String) {
+        firestore.collection("categories").document(id).delete()
+    }
+
+    // Real-time welcome config listener
+    fun listenToWelcomeConfigFlow(): Flow<WelcomeConfig> = callbackFlow {
+        val listenerRegistration = firestore.collection("config").document("welcome")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    if (snapshot.exists()) {
+                        val config = snapshot.toObject(WelcomeConfig::class.java)
+                        if (config != null) {
+                            trySend(config)
+                        } else {
+                            trySend(WelcomeConfig())
+                        }
+                    } else {
+                        // Seed config
+                        val defaultConfig = WelcomeConfig()
+                        firestore.collection("config").document("welcome").set(defaultConfig)
+                        trySend(defaultConfig)
+                    }
+                }
+            }
+        awaitClose {
+            listenerRegistration.remove()
+        }
+    }
+
+    fun saveWelcomeConfig(config: WelcomeConfig) {
+        firestore.collection("config").document("welcome").set(config)
+    }
+
+    // Real-time service comments listener
+    fun listenToCommentsFlow(serviceId: String): Flow<List<ServiceComment>> = callbackFlow {
+        val listenerRegistration = firestore.collection("comments")
+            .whereEqualTo("serviceId", serviceId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val commentsList = snapshot.documents.mapNotNull { doc ->
+                        doc.toObject(ServiceComment::class.java)?.copy(id = doc.id)
+                    }.sortedByDescending { it.timestamp }
+                    trySend(commentsList)
+                }
+            }
+        awaitClose {
+            listenerRegistration.remove()
+        }
+    }
+
+    fun saveComment(comment: ServiceComment) {
+        val docId = if (comment.id.isBlank()) firestore.collection("comments").document().id else comment.id
+        val finalComment = comment.copy(id = docId)
+        firestore.collection("comments").document(docId).set(finalComment)
+    }
+
+    fun deleteComment(id: String) {
+        firestore.collection("comments").document(id).delete()
+    }
+
     // Real-time Firestore snapshot listener
     fun listenToServicesFlow(): Flow<List<YemenService>> = callbackFlow {
         val listenerRegistration = firestore.collection("services")
@@ -226,7 +327,32 @@ class Repository(context: Context) {
             .putStringSet("favorites", emptySet())
             .apply()
 
-        // Wipe firestore collection and re-seed
+        // Clean and reset configs
+        val defaultConfig = WelcomeConfig()
+        firestore.collection("config").document("welcome").set(defaultConfig)
+
+        // Clear comments
+        firestore.collection("comments").get().addOnSuccessListener { snapshot ->
+            if (snapshot != null) {
+                for (doc in snapshot.documents) {
+                    doc.reference.delete()
+                }
+            }
+        }
+
+        // Wipe categories and reseed
+        firestore.collection("categories").get().addOnSuccessListener { snapshot ->
+            if (snapshot != null) {
+                for (doc in snapshot.documents) {
+                    doc.reference.delete()
+                }
+            }
+            for (cat in defaultCategories) {
+                firestore.collection("categories").document(cat.id).set(cat)
+            }
+        }
+
+        // Wipe firestore collection and re-seed services
         firestore.collection("services").get().addOnSuccessListener { snapshot ->
             if (snapshot != null) {
                 for (doc in snapshot.documents) {
