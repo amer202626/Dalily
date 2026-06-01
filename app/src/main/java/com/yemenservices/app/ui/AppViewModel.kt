@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.yemenservices.app.data.Repository
 import com.yemenservices.app.data.YemenService
 import com.yemenservices.app.data.ServiceCategory
+import com.yemenservices.app.data.ServiceSubCategory
+import com.yemenservices.app.data.JoinApplication
+import com.yemenservices.app.data.GeminiService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +21,7 @@ enum class AppScreen {
     Home,
     ServicesList,
     ServiceDetails,
+    SmartAssistant,
     Favorites,
     About,
     AdminDashboard
@@ -31,7 +35,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val currentScreen = MutableStateFlow(AppScreen.Home)
     val searchQuery = MutableStateFlow("")
     val selectedCategory = MutableStateFlow<String?>(null)
-    
+    val selectedSubCategory = MutableStateFlow<String?>(null)
+
     private val _yemenServices = MutableStateFlow<List<YemenService>>(emptyList())
     val yemenServices: StateFlow<List<YemenService>> = _yemenServices
 
@@ -41,6 +46,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .thenBy { it.orderIndex }
             .thenBy { if (isAr) it.nameAr else it.nameEn })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _subCategories = MutableStateFlow<List<ServiceSubCategory>>(emptyList())
+    val subCategories: StateFlow<List<ServiceSubCategory>> = combine(_subCategories, isArabic) { subs, isAr ->
+        subs.sortedWith(compareBy<ServiceSubCategory> { it.orderIndex }
+            .thenBy { if (isAr) it.nameAr else it.nameEn })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _joinApplications = MutableStateFlow<List<JoinApplication>>(emptyList())
+    val joinApplications: StateFlow<List<JoinApplication>> = _joinApplications
 
     val welcomeConfig = MutableStateFlow(com.yemenservices.app.data.WelcomeConfig())
 
@@ -72,17 +86,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _yemenServices,
         searchQuery,
         selectedCategory,
+        selectedSubCategory,
         isArabic
-    ) { services, query, category, isAr ->
+    ) { services, query, category, subCat, isAr ->
         services.filter { service ->
             val matchCategory = category == null || service.category == category
+            val matchSubCategory = subCat == null || service.subCategory == subCat
             val matchQuery = query.isBlank() || 
                 service.nameAr.contains(query, ignoreCase = true) ||
                 service.nameEn.contains(query, ignoreCase = true) ||
                 service.phoneNumber.contains(query, ignoreCase = true) ||
                 service.descriptionAr.contains(query, ignoreCase = true) ||
                 service.descriptionEn.contains(query, ignoreCase = true)
-            matchCategory && matchQuery
+            matchCategory && matchSubCategory && matchQuery
         }.sortedWith(compareByDescending<YemenService> { it.isPinned }
             .thenBy { it.orderIndex }
             .thenBy { if (isAr) it.nameAr else it.nameEn })
@@ -111,10 +127,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Collect real-time sub-categories
+        viewModelScope.launch {
+            repository.listenToSubCategoriesFlow().collect { subs ->
+                _subCategories.value = subs
+            }
+        }
+
         // Collect real-time Welcome configuration
         viewModelScope.launch {
             repository.listenToWelcomeConfigFlow().collect { config ->
                 welcomeConfig.value = config
+            }
+        }
+
+        // Collect real-time Join applications
+        viewModelScope.launch {
+            repository.listenToJoinApplicationsFlow().collect { apps ->
+                _joinApplications.value = apps
             }
         }
 
@@ -141,13 +171,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         nameAr: String,
         nameEn: String,
         category: String,
+        subCategory: String,
         phone: String,
         whatsapp: String,
         addressAr: String,
         addressEn: String,
         descriptionAr: String,
         descriptionEn: String,
+        imageUrl: String = "",
         isPinned: Boolean = false,
+        isRecommended: Boolean = false,
         orderIndex: Int = 0
     ) {
         val finalId = id ?: UUID.randomUUID().toString()
@@ -156,17 +189,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             nameAr = nameAr,
             nameEn = nameEn,
             category = category,
+            subCategory = subCategory,
             phoneNumber = phone,
             whatsappNumber = whatsapp,
             addressAr = addressAr,
             addressEn = addressEn,
             descriptionAr = descriptionAr,
             descriptionEn = descriptionEn,
+            imageUrl = imageUrl,
             rating = 4.5f,
             isPinned = isPinned,
+            isRecommended = isRecommended,
             orderIndex = orderIndex
         )
         repository.saveService(service)
+    }
+
+    fun updateServiceRating(serviceId: String, newRating: Float) {
+        viewModelScope.launch {
+            val s = _yemenServices.value.find { it.id == serviceId } ?: return@launch
+            repository.saveService(s.copy(rating = newRating))
+        }
     }
 
     fun deleteService(id: String) {
@@ -179,6 +222,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteCategory(id: String) {
         repository.deleteCategory(id)
+    }
+
+    fun saveSubCategory(sub: ServiceSubCategory) {
+        repository.saveSubCategory(sub)
+    }
+
+    fun deleteSubCategory(id: String) {
+        repository.deleteSubCategory(id)
     }
 
     fun saveWelcomeConfig(config: com.yemenservices.app.data.WelcomeConfig) {
@@ -203,6 +254,65 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateComment(comment: com.yemenservices.app.data.ServiceComment) {
         repository.saveComment(comment)
+    }
+
+    // Join requests Submission
+    fun submitJoinApplication(
+        name: String,
+        phone: String,
+        region: String,
+        categoryId: String,
+        subCategoryId: String,
+        logoUrl: String
+    ) {
+        val app = JoinApplication(
+            id = UUID.randomUUID().toString(),
+            name = name,
+            phone = phone,
+            region = region,
+            categoryId = categoryId,
+            subCategoryId = subCategoryId,
+            logoUrl = logoUrl,
+            status = "pending",
+            timestamp = System.currentTimeMillis()
+        )
+        repository.saveJoinApplication(app)
+    }
+
+    // Admin Accept or Reject requests
+    fun updateJoinApplicationStatus(appId: String, status: String) {
+        viewModelScope.launch {
+            val app = _joinApplications.value.find { it.id == appId } ?: return@launch
+            val updatedApp = app.copy(status = status)
+            repository.saveJoinApplication(updatedApp)
+
+            if (status == "approved") {
+                // If approved, create a real active provider automatically!
+                val service = YemenService(
+                    id = UUID.randomUUID().toString(),
+                    nameAr = updatedApp.name,
+                    nameEn = updatedApp.name,
+                    category = updatedApp.categoryId,
+                    subCategory = updatedApp.subCategoryId,
+                    phoneNumber = updatedApp.phone,
+                    whatsappNumber = "",
+                    addressAr = "اليمن - ${updatedApp.region}",
+                    addressEn = "Yemen - ${updatedApp.region}",
+                    rating = 5.0f,
+                    imageUrl = updatedApp.logoUrl.ifBlank { "https://images.unsplash.com/photo-1521791136368-1a46827d0adf?w=400" },
+                    descriptionAr = "مزود خدمة يمني معتمد تم قبوله وتفعيله عبر طلب انضمام رسمي.",
+                    descriptionEn = "Verified Yemeni service provider approved and listed from join applications.",
+                    isPinned = false,
+                    isRecommended = true,
+                    orderIndex = 0
+                )
+                repository.saveService(service)
+            }
+        }
+    }
+
+    fun deleteJoinApplication(id: String) {
+        repository.deleteJoinApplication(id)
     }
 
     fun resetToDefaults() {
@@ -235,5 +345,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (currentScreen.value == AppScreen.AdminDashboard) {
             currentScreen.value = AppScreen.Home
         }
+    }
+
+    // Gemini Chat Response Call
+    suspend fun getGeminiReply(query: String): String {
+        // Build a highly rich context representation of all main categories, subcategories and active providers
+        val contextBuilder = StringBuilder()
+        contextBuilder.append("الدليل يحتوي على الأقسام التالية: ")
+        _categories.value.forEach { contextBuilder.append("${it.nameAr} (${it.id}), ") }
+        contextBuilder.append("\nالفروع التخصصية: ")
+        _subCategories.value.forEach { contextBuilder.append("${it.nameAr} تابع لـ ${it.parentId}, ") }
+        contextBuilder.append("\nمزودي الخدمات الفعليين: ")
+        _yemenServices.value.forEach {
+            contextBuilder.append("${it.nameAr} (رقم الهاتف: ${it.phoneNumber}, الفرع: ${it.subCategory}, التقييم: ${it.rating}), ")
+        }
+        return GeminiService.getGeminiReply(query, contextBuilder.toString())
     }
 }

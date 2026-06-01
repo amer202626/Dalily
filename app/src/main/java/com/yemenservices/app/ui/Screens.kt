@@ -39,8 +39,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
+import kotlinx.coroutines.launch
+import androidx.compose.ui.text.TextStyle
+import java.util.UUID
 import com.yemenservices.app.data.YemenService
 import com.yemenservices.app.data.ServiceCategory
+import com.yemenservices.app.data.ServiceSubCategory
 import com.yemenservices.app.data.ServiceComment
 import com.yemenservices.app.data.WelcomeConfig
 
@@ -53,21 +57,17 @@ fun MainScreen(viewModel: AppViewModel) {
     val searchQuery by viewModel.searchQuery.collectAsState()
     val services by viewModel.filteredServices.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
-    val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val selectedCategoryByState by viewModel.selectedCategory.collectAsState()
     val selectedService by viewModel.selectedServiceForDetails.collectAsState()
     val isAdminAuth by viewModel.isAdminAuthenticated.collectAsState()
+    val categoriesList by viewModel.categories.collectAsState()
+    val subCategoriesList by viewModel.subCategories.collectAsState()
 
-    var showAdminLoginDialog by remember { mutableStateOf(false) }
-    var showAssistantDialog by remember { mutableStateOf(false) }
-    var adminUsernameInput by remember { mutableStateOf("") }
-    var adminPasswordInput by remember { mutableStateOf("") }
-    var loginError by remember { mutableStateOf(false) }
-
-    // Backdoor secret entry states
+    var showJoinDialog by remember { mutableStateOf(false) }
+    var logoTapCount by remember { mutableStateOf(0) }
     var showBackdoorDialog by remember { mutableStateOf(false) }
     var backdoorPassInput by remember { mutableStateOf("") }
     var backdoorError by remember { mutableStateOf(false) }
-    var logoTapCount by remember { mutableStateOf(0) }
 
     Scaffold(
         topBar = {
@@ -127,10 +127,7 @@ fun MainScreen(viewModel: AppViewModel) {
                                     Toast.LENGTH_SHORT
                                 ).show()
                             } else {
-                                adminUsernameInput = ""
-                                adminPasswordInput = ""
-                                loginError = false
-                                showAdminLoginDialog = true
+                                viewModel.currentScreen.value = AppScreen.AdminDashboard
                             }
                         },
                         modifier = Modifier.testTag("admin_action_btn")
@@ -151,34 +148,55 @@ fun MainScreen(viewModel: AppViewModel) {
                 modifier = Modifier.testTag("bottom_nav")
             ) {
                 NavigationBarItem(
-                    selected = currentScreen == AppScreen.Home || currentScreen == AppScreen.ServicesList,
+                    selected = currentScreen == AppScreen.Home || currentScreen == AppScreen.ServicesList || currentScreen == AppScreen.ServiceDetails,
                     onClick = {
                         viewModel.selectedCategory.value = null
+                        viewModel.selectedSubCategory.value = null
                         viewModel.currentScreen.value = AppScreen.Home
                     },
                     icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
                     label = { Text(if (isAr) "الرئيسية" else "Home") }
                 )
                 NavigationBarItem(
-                    selected = currentScreen == AppScreen.Favorites,
-                    onClick = { viewModel.currentScreen.value = AppScreen.Favorites },
-                    icon = { Icon(Icons.Default.Favorite, contentDescription = "Favorites") },
-                    label = { Text(if (isAr) "المفضلة" else "Favorites") }
+                    selected = currentScreen == AppScreen.SmartAssistant,
+                    onClick = { viewModel.currentScreen.value = AppScreen.SmartAssistant },
+                    icon = { Icon(Icons.Default.Chat, contentDescription = "Assistant") },
+                    label = { Text(if (isAr) "المساعد الذكي" else "AI Assistant") }
                 )
-                if (isAdminAuth) {
-                    NavigationBarItem(
-                        selected = currentScreen == AppScreen.AdminDashboard,
-                        onClick = { viewModel.currentScreen.value = AppScreen.AdminDashboard },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Manage") },
-                        label = { Text(if (isAr) "إدارة" else "Manage") }
-                    )
-                }
                 NavigationBarItem(
                     selected = currentScreen == AppScreen.About,
                     onClick = { viewModel.currentScreen.value = AppScreen.About },
                     icon = { Icon(Icons.Default.Info, contentDescription = "About") },
-                    label = { Text(if (isAr) "عن التطبيق" else "About") }
+                    label = { Text(if (isAr) "عن دليلي" else "App Info") }
                 )
+                NavigationBarItem(
+                    selected = currentScreen == AppScreen.AdminDashboard,
+                    onClick = { viewModel.currentScreen.value = AppScreen.AdminDashboard },
+                    icon = { Icon(Icons.Default.ManageAccounts, contentDescription = "Admin") },
+                    label = { Text(if (isAr) "لوحة التحكم" else "Admin Panel") }
+                )
+            }
+        },
+        floatingActionButton = {
+            if (currentScreen == AppScreen.Home) {
+                FloatingActionButton(
+                    onClick = { showJoinDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.testTag("join_provider_fab")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Join")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isAr) "انضم كمزود خدمة" else "Join as Provider",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     ) { padding ->
@@ -203,317 +221,194 @@ fun MainScreen(viewModel: AppViewModel) {
                         }
                     }
                 )
+                AppScreen.SmartAssistant -> SmartAssistantPage(viewModel = viewModel, isAr = isAr)
                 AppScreen.Favorites -> FavoritesScreen(viewModel = viewModel, isAr = isAr)
                 AppScreen.About -> AboutScreen(viewModel = viewModel, isAr = isAr)
                 AppScreen.AdminDashboard -> {
                     if (isAdminAuth) {
                         AdminDashboardScreen(viewModel = viewModel, isAr = isAr)
                     } else {
-                        viewModel.currentScreen.value = AppScreen.Home
-                    }
-                }
-            }
-
-            // Circular Floating AI Assistant Button (bottom-right)
-            if (currentScreen != AppScreen.AdminDashboard) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(bottom = 20.dp, end = 16.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(70.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1E2640))
-                            .border(2.dp, Color(0xFFF29B9B), CircleShape)
-                            .clickable { showAssistantDialog = true }
-                            .padding(4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Face,
-                                contentDescription = "مساعد ذكي",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (isAr) "خدمات" else "Services",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
+                        AdminLoginScreen(viewModel = viewModel, isAr = isAr)
                     }
                 }
             }
         }
     }
 
-    // Smart Assistant Chat Dialog Block
-    if (showAssistantDialog) {
-        val categoriesList by viewModel.categories.collectAsState()
-        val servicesList by viewModel.yemenServices.collectAsState()
+    // Modal dialogue to registration request (Join Application as a Service Provider)
+    if (showJoinDialog) {
+        var joinName by remember { mutableStateOf("") }
+        var joinPhone by remember { mutableStateOf("") }
+        var joinRegion by remember { mutableStateOf("") }
+        var joinLogoUrl by remember { mutableStateOf("") }
+        var selectedCatId by remember { mutableStateOf(categoriesList.firstOrNull()?.id ?: "") }
         
-        var userQuestion by remember { mutableStateOf("") }
-        val chatMessages = remember {
-            mutableStateListOf<Pair<Boolean, String>>(
-                Pair(false, if (isAr) 
-                    "مرحباً بك! أنا مساعدك الذكي لجميع الخدمات وأصحاب المهن في اليمن. سأساعدك في العثور على أرقام الطوارئ، الأقسام، المستشفيات، والأشخاص المهنيين.\n\nأنا أعمل بدون إنترنت أيضاً! بماذا يمكنني مساعدتك الآن؟" 
-                else 
-                    "Welcome! I am your Smart Assistant for all services in Yemen. I will help you look up categories, services, hospitals, doctors and professional names.\n\nI work fully offline as well! How can I help you?")
-            )
+        val filteredSubcategoriesByParent = subCategoriesList.filter { it.parentId == selectedCatId }
+        var selectedSubCatId by remember(selectedCatId) { 
+            mutableStateOf(filteredSubcategoriesByParent.firstOrNull()?.id ?: "") 
         }
-        
-        AlertDialog(
-            onDismissRequest = { showAssistantDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Face,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 8.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text(if (isAr) "المساعد الذكي للخدمات" else "Smart Guide Assistant")
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(350.dp)
-                ) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(chatMessages) { msg ->
-                            val isUser = msg.first
-                            val text = msg.second
-                            
-                            Box(
-                                modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
-                            ) {
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
-                                    ),
-                                    shape = RoundedCornerShape(
-                                        topStart = 12.dp,
-                                        topEnd = 12.dp,
-                                        bottomStart = if (isUser) 12.dp else 0.dp,
-                                        bottomEnd = if (isUser) 0.dp else 12.dp
-                                    ),
-                                    modifier = Modifier.widthIn(max = 240.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(10.dp)) {
-                                        Text(
-                                            text = text,
-                                            fontSize = 13.sp,
-                                            lineHeight = 18.sp,
-                                            textAlign = if (isAr) TextAlign.Right else TextAlign.Left,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = userQuestion,
-                            onValueChange = { userQuestion = it },
-                            placeholder = { Text(if (isAr) "اكتب سؤالك هنا..." else "Type message...") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(56.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        IconButton(
-                            onClick = {
-                                if (userQuestion.isBlank()) return@IconButton
-                                val q = userQuestion
-                                chatMessages.add(Pair(true, q))
-                                userQuestion = ""
-                                
-                                val normalized = q.lowercase().trim()
-                                val matches = servicesList.filter { s ->
-                                    s.nameAr.lowercase().contains(normalized) ||
-                                    s.nameEn.lowercase().contains(normalized) ||
-                                    s.descriptionAr.lowercase().contains(normalized) ||
-                                    s.descriptionEn.lowercase().contains(normalized) ||
-                                    s.category.lowercase().contains(normalized) ||
-                                    (categoriesList.find { it.id == s.category }?.nameAr?.lowercase()?.contains(normalized) == true) ||
-                                    (categoriesList.find { it.id == s.category }?.nameEn?.lowercase()?.contains(normalized) == true)
-                                }
-                                
-                                val response = StringBuilder()
-                                if (matches.isNotEmpty()) {
-                                    if (isAr) {
-                                        response.append("لقد وجدت نتائج مطابقة في الدليل:\n\n")
-                                        matches.take(4).forEach { s ->
-                                            val catName = categoriesList.find { it.id == s.category }?.nameAr ?: s.category
-                                            response.append("• *${s.nameAr}*\n  القسم: $catName\n  الهاتف: ${s.phoneNumber}\n\n")
-                                        }
-                                        if (matches.size > 4) {
-                                            response.append("وهناك المزيد من النتائج، يمكنك تصفحها مباشرة في القائمة الرئيسية.")
-                                        }
-                                    } else {
-                                        response.append("Matching records found in guidelines:\n\n")
-                                        matches.take(4).forEach { s ->
-                                            val catName = categoriesList.find { it.id == s.category }?.nameEn ?: s.category
-                                            response.append("• *${s.nameEn}*\n  Category: $catName\n  Phone: ${s.phoneNumber}\n\n")
-                                        }
-                                        if (matches.size > 4) {
-                                            response.append("More records match. Please browse them inside category screens!")
-                                        }
-                                    }
-                                } else {
-                                    val catMatches = categoriesList.filter { 
-                                        it.nameAr.lowercase().contains(normalized) || 
-                                        it.nameEn.lowercase().contains(normalized)
-                                    }
-                                    if (catMatches.isNotEmpty()) {
-                                        if (isAr) {
-                                            response.append("لقد وجدت قسماً يسمى: *${catMatches.first().nameAr}*. يمكنك الضغط عليه لتصفح جميع مقدمي الخدمات والمهنيين فيه.")
-                                        } else {
-                                            response.append("I found a category called: *${catMatches.first().nameEn}*. Tap it on your home screen to explore!")
-                                        }
-                                    } else {
-                                        if (isAr) {
-                                            response.append("آسف، لم أجد خدمات مطابقة لـ '${q}' حالياً.\n\nسأضيف المزيد قريباً. جرب البحث عن كلمات مثل 'طبيب'، 'مستشفى'، 'سباك'، 'كهرباء'، 'طوارئ'.")
-                                        } else {
-                                            response.append("Sorry, I couldn't find matching services for '${q}' right now.\n\nTry looking up words like 'doctor', 'hospital', 'plumber', 'electricity', 'emergency'.")
-                                        }
-                                    }
-                                }
-                                chatMessages.add(Pair(false, response.toString()))
-                            },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Send,
-                                contentDescription = "Send",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAssistantDialog = false }) {
-                    Text(if (isAr) "إغلاق" else "Close")
-                }
-            }
-        )
-    }
 
-    // Standard Admin login dialog
-    if (showAdminLoginDialog) {
         AlertDialog(
-            onDismissRequest = { showAdminLoginDialog = false },
+            onDismissRequest = { showJoinDialog = false },
             title = {
                 Text(
-                    text = if (isAr) "تسجيل الدخول للإشراف" else "Admin Login",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    text = if (isAr) "طلب انضمام كمزود خدمة" else "Join as a Service Provider",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
                 )
             },
             text = {
-                Column {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text(
-                        text = if (isAr) "الرجاء إدخال بيانات حساب المشرف المعتمد للتحكم وعمليات الصيانة مباشرة." else "Please enter authorized admin credentials to proceed.",
+                        text = if (isAr) "أدخل بياناتك وسيتم مراجعتها من قبل المشرف وتفعيل حسابك." else "Enter your information. Admin will verify before listing you.",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.padding(bottom = 12.dp)
+                        color = Color.Gray
                     )
+
                     OutlinedTextField(
-                        value = adminUsernameInput,
-                        onValueChange = {
-                            adminUsernameInput = it
-                            loginError = false
-                        },
-                        label = { Text(if (isAr) "اسم المستخدم" else "Username") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
+                        value = joinName,
+                        onValueChange = { joinName = it },
+                        label = { Text(if (isAr) "الاسم التجاري أو المهني" else "Business/Professional Name") },
+                        modifier = Modifier.fillMaxWidth().testTag("join_name_input"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF2C2C2C),
+                            unfocusedContainerColor = Color(0xFF2C2C2C)
+                        ),
+                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     )
+
                     OutlinedTextField(
-                        value = adminPasswordInput,
-                        onValueChange = {
-                            adminPasswordInput = it
-                            loginError = false
-                        },
-                        label = { Text(if (isAr) "كلمة المرور" else "Password") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        isError = loginError,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        value = joinPhone,
+                        onValueChange = { joinPhone = it },
+                        label = { Text(if (isAr) "رقم الهاتف للاتصال" else "Contact Phone Number") },
+                        modifier = Modifier.fillMaxWidth().testTag("join_phone_input"),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF2C2C2C),
+                            unfocusedContainerColor = Color(0xFF2C2C2C)
+                        ),
+                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     )
-                    if (loginError) {
-                        Text(
-                            text = if (isAr) "بيانات الدخول خاطئة، يرجى المحاولة مرة أخرى" else "Incorrect credentials, please try again",
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
+
+                    OutlinedTextField(
+                        value = joinRegion,
+                        onValueChange = { joinRegion = it },
+                        label = { Text(if (isAr) "المحافظة / المديرية" else "Governorate / Region") },
+                        placeholder = { Text(if (isAr) "صنعاء، عدن، تعز، حضرموت..." else "Sanaa, Aden, Taiz...") },
+                        modifier = Modifier.fillMaxWidth().testTag("join_region_input"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF2C2C2C),
+                            unfocusedContainerColor = Color(0xFF2C2C2C)
+                        ),
+                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    )
+
+                    OutlinedTextField(
+                        value = joinLogoUrl,
+                        onValueChange = { joinLogoUrl = it },
+                        label = { Text(if (isAr) "رابط الصورة الشخصية أو الشعار" else "Photo or Logo URL") },
+                        placeholder = { Text("https://example.com/myimage.jpg") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF2C2C2C),
+                            unfocusedContainerColor = Color(0xFF2C2C2C)
+                        ),
+                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    )
+
+                    // Category Select
+                    Text(text = if (isAr) "اختر فئة الخدمة:" else "Select service category:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        categoriesList.take(3).forEach { cat ->
+                            val isSelected = selectedCatId == cat.id
+                            Button(
+                                onClick = { selectedCatId = cat.id },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                    contentColor = if (isSelected) Color.White else Color.Black
+                                ),
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(if (isAr) cat.nameAr.take(8) else cat.nameEn.take(8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Subcategory Select if available
+                    if (filteredSubcategoriesByParent.isNotEmpty()) {
+                        Text(text = if (isAr) "التخصص الدقيق الفرعي:" else "Select Subspecialist:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            filteredSubcategoriesByParent.take(3).forEach { sub ->
+                                val isSelected = selectedSubCatId == sub.id
+                                Button(
+                                    onClick = { selectedSubCatId = sub.id },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                        contentColor = if (isSelected) Color.White else Color.Black
+                                    ),
+                                    modifier = Modifier.weight(1f).height(36.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(if (isAr) sub.nameAr.take(8) else sub.nameEn.take(8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                     }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        val success = viewModel.authenticateAdmin(adminUsernameInput, adminPasswordInput)
-                        if (success) {
-                            showAdminLoginDialog = false
-                            adminUsernameInput = ""
-                            adminPasswordInput = ""
-                            viewModel.currentScreen.value = AppScreen.AdminDashboard
-                            Toast.makeText(
-                                context,
-                                if (isAr) "مرحباً بك في لوحة التحكم!" else "Welcome to Admin Dashboard!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            loginError = true
+                        if (joinName.isBlank() || joinPhone.isBlank() || joinRegion.isBlank()) {
+                            Toast.makeText(context, if (isAr) "يرجى ملء جميع الحقول المطلوبة!" else "Please fill required fields!", Toast.LENGTH_SHORT).show()
+                            return@Button
                         }
+                        viewModel.submitJoinApplication(
+                            name = joinName,
+                            phone = joinPhone,
+                            region = joinRegion,
+                            categoryId = selectedCatId,
+                            subCategoryId = selectedSubCatId,
+                            logoUrl = joinLogoUrl
+                        )
+                        showJoinDialog = false
+                        Toast.makeText(context, if (isAr) "تم إرسال طلب انضمامك للمشرف بنجاح!" else "Join request submitted to Admin!", Toast.LENGTH_LONG).show()
                     }
                 ) {
-                    Text(if (isAr) "دخول" else "Login")
+                    Text(if (isAr) "تقديم الطلب الآن" else "Submit Application")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAdminLoginDialog = false }) {
+                TextButton(onClick = { showJoinDialog = false }) {
                     Text(if (isAr) "إلغاء" else "Cancel")
                 }
             }
         )
     }
 
-    // Secret Backdoor dialog (triggered by 5 taps)
+    // Secret Backdoor dialog
     if (showBackdoorDialog) {
         AlertDialog(
             onDismissRequest = { showBackdoorDialog = false },
@@ -1771,9 +1666,11 @@ fun AboutScreen(viewModel: AppViewModel, isAr: Boolean) {
 fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
     val services by viewModel.yemenServices.collectAsState()
     val categoriesList by viewModel.categories.collectAsState()
+    val subCategoriesList by viewModel.subCategories.collectAsState()
     val welcomeConfig by viewModel.welcomeConfig.collectAsState()
+    val joinRequests by viewModel.joinApplications.collectAsState()
 
-    var selectedTab by remember { mutableStateOf(0) } // 0: Listings, 1: Welcome Screen, 2: Categories Sorting
+    var selectedTab by remember { mutableStateOf(0) } // 0: Listings, 1: Categories & Subs, 2: Applications Review, 3: System settings
 
     Column(
         modifier = Modifier
@@ -1789,43 +1686,56 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                 .padding(bottom = 12.dp)
         )
 
-        // Custom M3 Tab Layout
-        TabRow(
+        // Custom M3 Tab Layout with 4 key panels
+        ScrollableTabRow(
             selectedTabIndex = selectedTab,
+            edgePadding = 0.dp,
             modifier = Modifier.padding(bottom = 16.dp)
         ) {
             Tab(
                 selected = selectedTab == 0,
                 onClick = { selectedTab = 0 },
-                text = { Text(if (isAr) "الدليل والمهنيين" else "Listings", fontSize = 12.sp) }
+                text = { Text(if (isAr) "الموفرين" else "Providers", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
             )
             Tab(
                 selected = selectedTab == 1,
                 onClick = { selectedTab = 1 },
-                text = { Text(if (isAr) "الرسالة الترحيبية" else "Welcome Banner", fontSize = 12.sp) }
+                text = { Text(if (isAr) "الأقسام والفرعية" else "Categories Plan", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
             )
             Tab(
                 selected = selectedTab == 2,
                 onClick = { selectedTab = 2 },
-                text = { Text(if (isAr) "ترتيب الأقسام" else "Categories Plan", fontSize = 12.sp) }
+                text = { 
+                    val pendingCount = joinRequests.count { it.status == "pending" }
+                    val badgeText = if (pendingCount > 0) " ($pendingCount)" else ""
+                    Text((if (isAr) "طلبات الانضمام" else "Join Requests") + badgeText, fontSize = 11.sp, fontWeight = FontWeight.Bold) 
+                }
+            )
+            Tab(
+                selected = selectedTab == 3,
+                onClick = { selectedTab = 3 },
+                text = { Text(if (isAr) "الإعدادات العامة" else "Global Settings", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
             )
         }
 
         when (selectedTab) {
             0 -> {
-                // Listings Tab
+                // Providers Directory Tab
                 var showForm by remember { mutableStateOf(false) }
                 var editingServiceId by remember { mutableStateOf<String?>(null) }
                 var serviceNameAr by remember { mutableStateOf("") }
                 var serviceNameEn by remember { mutableStateOf("") }
-                var serviceCategory by remember { mutableStateOf("emergency") }
+                var serviceCategory by remember { mutableStateOf(categoriesList.firstOrNull()?.id ?: "emergency") }
+                var serviceSubCategory by remember { mutableStateOf("") }
                 var servicePhoneNumber by remember { mutableStateOf("") }
                 var serviceWhatsapp by remember { mutableStateOf("") }
                 var serviceAddressAr by remember { mutableStateOf("") }
                 var serviceAddressEn by remember { mutableStateOf("") }
                 var serviceDescAr by remember { mutableStateOf("") }
                 var serviceDescEn by remember { mutableStateOf("") }
+                var serviceImageUrl by remember { mutableStateOf("") }
                 var serviceIsPinned by remember { mutableStateOf(false) }
+                var serviceIsRecommended by remember { mutableStateOf(false) }
                 var serviceOrderIndex by remember { mutableStateOf("0") }
 
                 if (showForm) {
@@ -1840,53 +1750,83 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                             horizontalAlignment = if (isAr) Alignment.End else Alignment.Start
                         ) {
                             Text(
-                                text = if (editingServiceId == null) 
-                                    (if (isAr) "إضافة دليل خدمة جديد" else "Create New Service Listing")
-                                else 
-                                    (if (isAr) "تعديل الخدمة المحددة" else "Edit Service Listing"),
+                                text = if (editingServiceId == null) {
+                                    if (isAr) "إضافة دليل خدمة جديد" else "Create New Service Listing"
+                                } else {
+                                    if (isAr) "تعديل الخدمة المحددة" else "Edit Service Listing"
+                                },
                                 fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.titleSmall
+                                style = MaterialTheme.typography.titleMedium
                             )
 
                             OutlinedTextField(
                                 value = serviceNameAr,
                                 onValueChange = { serviceNameAr = it },
                                 label = { Text(if (isAr) "اسم الخدمة / المهني باللغة العربية" else "Arabic Service Name") },
-                                modifier = Modifier.fillMaxWidth().testTag("form_name_ar")
+                                modifier = Modifier.fillMaxWidth().testTag("form_name_ar"),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
                             OutlinedTextField(
                                 value = serviceNameEn,
                                 onValueChange = { serviceNameEn = it },
                                 label = { Text(if (isAr) "اسم الخدمة / المهني باللغة الإنجليزية" else "English Service Name") },
-                                modifier = Modifier.fillMaxWidth().testTag("form_name_en")
+                                modifier = Modifier.fillMaxWidth().testTag("form_name_en"),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
-                            Text(
-                                text = if (isAr) "الفئة المحددة:" else "Selected Category:",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            // Select category
+                            Text(text = if (isAr) "اختر فئة الدليل الرئيسية:" else "Primary Category:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                categoriesList.forEach { cat ->
-                                    val isSelected = serviceCategory == cat.id
+                                categoriesList.take(3).forEach { cat ->
+                                    val isSel = serviceCategory == cat.id
                                     Button(
-                                        onClick = { serviceCategory = cat.id },
+                                        onClick = { 
+                                            serviceCategory = cat.id
+                                            serviceSubCategory = ""
+                                        },
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray,
-                                            contentColor = if (isSelected) Color.White else Color.Black
+                                            containerColor = if (isSel) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                            contentColor = if (isSel) Color.White else Color.Black
                                         ),
                                         modifier = Modifier.weight(1f).height(32.dp),
                                         contentPadding = PaddingValues(0.dp)
                                     ) {
-                                        Text(if (isAr) cat.nameAr.take(5) else cat.id.take(5), fontSize = 10.sp)
+                                        Text(if (isAr) cat.nameAr.take(8) else cat.nameEn.take(8), fontSize = 10.sp)
+                                    }
+                                }
+                            }
+
+                            // Select subcategory if parent exists
+                            val subsForCat = subCategoriesList.filter { it.parentId == serviceCategory }
+                            if (subsForCat.isNotEmpty()) {
+                                Text(text = if (isAr) "اختر التخصص الفرعي الدقيق:" else "Select Subcategory:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    subsForCat.take(3).forEach { sub ->
+                                        val isSel = serviceSubCategory == sub.id
+                                        Button(
+                                            onClick = { serviceSubCategory = sub.id },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (isSel) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                                contentColor = if (isSel) Color.White else Color.Black
+                                            ),
+                                            modifier = Modifier.weight(1f).height(32.dp),
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text(if (isAr) sub.nameAr.take(8) else sub.nameEn.take(8), fontSize = 10.sp)
+                                        }
                                     }
                                 }
                             }
@@ -1896,7 +1836,9 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                                 onValueChange = { servicePhoneNumber = it },
                                 label = { Text(if (isAr) "رقم الهاتف والاتصال" else "Phone Number") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                modifier = Modifier.fillMaxWidth().testTag("form_phone")
+                                modifier = Modifier.fillMaxWidth().testTag("form_phone"),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
                             OutlinedTextField(
@@ -1904,60 +1846,80 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                                 onValueChange = { serviceWhatsapp = it },
                                 label = { Text(if (isAr) "رقم الواتساب (اختياري)" else "WhatsApp Number (Optional)") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
                             OutlinedTextField(
                                 value = serviceAddressAr,
                                 onValueChange = { serviceAddressAr = it },
                                 label = { Text(if (isAr) "العنوان بالعربية" else "Arabic Address") },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
                             OutlinedTextField(
                                 value = serviceAddressEn,
                                 onValueChange = { serviceAddressEn = it },
                                 label = { Text(if (isAr) "العنوان بالإنجليزية" else "English Address") },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                            )
+
+                            OutlinedTextField(
+                                value = serviceImageUrl,
+                                onValueChange = { serviceImageUrl = it },
+                                label = { Text(if (isAr) "رابط الصورة الشخصية" else "Profile Pic / Photo URL") },
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
                             OutlinedTextField(
                                 value = serviceDescAr,
                                 onValueChange = { serviceDescAr = it },
                                 label = { Text(if (isAr) "الوصف بالعربية" else "Arabic Description") },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
                             OutlinedTextField(
                                 value = serviceDescEn,
                                 onValueChange = { serviceDescEn = it },
                                 label = { Text(if (isAr) "الوصف بالإنجليزية" else "English Description") },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
-                            // Prioritizing config for Service professional
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Checkbox(
-                                    checked = serviceIsPinned,
-                                    onCheckedChange = { serviceIsPinned = it }
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isAr) "تثبيت في أعلى القائمة وبداية البحث" else "Pin to top of search results",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Checkbox(checked = serviceIsPinned, onCheckedChange = { serviceIsPinned = it })
+                                Text(text = if (isAr) "تثبيت في أعلى القائمة وبداية البحث" else "Pin to top of search results", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(checked = serviceIsRecommended, onCheckedChange = { serviceIsRecommended = it })
+                                Text(text = if (isAr) "تمييز كـ خدمة موصى بها من قِبلنا" else "Recommend listing", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
 
                             OutlinedTextField(
                                 value = serviceOrderIndex,
                                 onValueChange = { serviceOrderIndex = it },
-                                label = { Text(if (isAr) "دليل رقم الترتيب (الافتراضي 0 - الأكبر يظهر أولاً)" else "Sorting index (Default 0 - Higher first)") },
+                                label = { Text(if (isAr) "رقم الترتيب الهرمي (الأكبر يظهر أولاً)" else "Sorting rank index") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                             )
 
                             Row(
@@ -1966,35 +1928,33 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                             ) {
                                 Button(
                                     onClick = {
-                                        if (serviceNameAr.isBlank() || servicePhoneNumber.isBlank()) {
-                                            return@Button
-                                        }
+                                        if (serviceNameAr.isBlank() || servicePhoneNumber.isBlank()) return@Button
                                         val idxVal = serviceOrderIndex.toIntOrNull() ?: 0
                                         viewModel.saveService(
                                             id = editingServiceId,
                                             nameAr = serviceNameAr,
                                             nameEn = serviceNameEn,
                                             category = serviceCategory,
+                                            subCategory = serviceSubCategory,
                                             phone = servicePhoneNumber,
                                             whatsapp = serviceWhatsapp,
                                             addressAr = serviceAddressAr,
                                             addressEn = serviceAddressEn,
                                             descriptionAr = serviceDescAr,
                                             descriptionEn = serviceDescEn,
+                                            imageUrl = serviceImageUrl,
                                             isPinned = serviceIsPinned,
+                                            isRecommended = serviceIsRecommended,
                                             orderIndex = idxVal
                                         )
                                         showForm = false
                                     },
                                     modifier = Modifier.weight(1f).testTag("form_submit_btn")
                                 ) {
-                                    Text(if (isAr) "حفظ والتسجيل" else "Save & Commit")
+                                    Text(if (isAr) "حفظ وتسجيل" else "Save & Commit")
                                 }
 
-                                TextButton(
-                                    onClick = { showForm = false },
-                                    modifier = Modifier.weight(0.5f)
-                                ) {
+                                TextButton(onClick = { showForm = false }, modifier = Modifier.weight(0.5f)) {
                                     Text(if (isAr) "إلغاء" else "Cancel")
                                 }
                             }
@@ -2006,31 +1966,32 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                             editingServiceId = null
                             serviceNameAr = ""
                             serviceNameEn = ""
-                            serviceCategory = "emergency"
+                            serviceCategory = categoriesList.firstOrNull()?.id ?: "emergency"
+                            serviceSubCategory = ""
                             servicePhoneNumber = ""
                             serviceWhatsapp = ""
                             serviceAddressAr = ""
                             serviceAddressEn = ""
                             serviceDescAr = ""
                             serviceDescEn = ""
+                            serviceImageUrl = ""
                             serviceIsPinned = false
+                            serviceIsRecommended = false
                             serviceOrderIndex = "0"
                             showForm = true
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 12.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isAr) "إضافة مقدم خدمة أو مهني جديد" else "Add New Professional Listing")
+                        Text(if (isAr) "إضافة مزود خدمة أو مهني جديد" else "Add New Professional Listing")
                     }
                 }
 
-                // List of all services in Admin control
                 Text(
-                    text = if (isAr) "جميع الخدمات المدرجة (${services.size})" else "All listings (${services.size})",
+                    text = if (isAr) "جميع الخدمات المدرجة للتحكم والفلترة (${services.size})" else "All Listings Database (${services.size})",
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
@@ -2050,25 +2011,30 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (service.isPinned) {
-                                    Icon(
-                                        imageVector = Icons.Default.PushPin,
-                                        contentDescription = "Pinned",
-                                        tint = Color(0xFFEF5350),
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .padding(end = 8.dp)
-                                    )
-                                }
                                 Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = if (isAr) service.nameAr else service.nameEn,
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                        if (service.isPinned) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                        }
+                                        if (service.isRecommended) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(Icons.Default.Star, contentDescription = "Recommended", tint = Color.Yellow, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
                                     Text(
-                                        text = if (isAr) service.nameAr else service.nameEn,
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyLarge
+                                        text = "القسم: ${service.category} / فرعي: ${service.subCategory.ifBlank { "بلا" }}",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
                                     )
                                     Text(
-                                        text = "${service.category} | ${service.phoneNumber} | ترتيب: ${service.orderIndex}",
-                                        fontSize = 12.sp,
+                                        text = "الهاتف: ${service.phoneNumber} | ترتيب هرمي: ${service.orderIndex}",
+                                        fontSize = 11.sp,
                                         color = Color.Gray
                                     )
                                 }
@@ -2079,13 +2045,16 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                                         serviceNameAr = service.nameAr
                                         serviceNameEn = service.nameEn
                                         serviceCategory = service.category
+                                        serviceSubCategory = service.subCategory
                                         servicePhoneNumber = service.phoneNumber
                                         serviceWhatsapp = service.whatsappNumber
                                         serviceAddressAr = service.addressAr
                                         serviceAddressEn = service.addressEn
                                         serviceDescAr = service.descriptionAr
                                         serviceDescEn = service.descriptionEn
+                                        serviceImageUrl = service.imageUrl
                                         serviceIsPinned = service.isPinned
+                                        serviceIsRecommended = service.isRecommended
                                         serviceOrderIndex = service.orderIndex.toString()
                                         showForm = true
                                     }
@@ -2093,11 +2062,7 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                                     Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
                                 }
 
-                                IconButton(
-                                    onClick = {
-                                        viewModel.deleteService(service.id)
-                                    }
-                                ) {
+                                IconButton(onClick = { viewModel.deleteService(service.id) }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                                 }
                             }
@@ -2106,12 +2071,327 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                 }
             }
             1 -> {
-                // Dynamic Welcome screen config & sync.
+                // Categories & Subcategories Manager Tab
+                var categoryNameAr by remember { mutableStateOf("") }
+                var categoryNameEn by remember { mutableStateOf("") }
+                var categoryEmoji by remember { mutableStateOf("") }
+                var categoryIdInput by remember { mutableStateOf("") }
+                var catFormOpen by remember { mutableStateOf(false) }
+
+                var subNameAr by remember { mutableStateOf("") }
+                var subNameEn by remember { mutableStateOf("") }
+                var subParentId by remember { mutableStateOf(categoriesList.firstOrNull()?.id ?: "") }
+                var subFormOpen by remember { mutableStateOf(false) }
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    item {
+                        Text(if (isAr) "التحكم بالأقسام الرئيسية (Categories Manager)" else "Main Categories Control", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        if (catFormOpen) {
+                            Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = categoryIdInput,
+                                        onValueChange = { categoryIdInput = it },
+                                        label = { Text("المعرف الفريد (ID)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                                    )
+                                    OutlinedTextField(
+                                        value = categoryNameAr,
+                                        onValueChange = { categoryNameAr = it },
+                                        label = { Text("الاسم بالعربية") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                                    )
+                                    OutlinedTextField(
+                                        value = categoryNameEn,
+                                        onValueChange = { categoryNameEn = it },
+                                        label = { Text("الاسم بالإنجليزية") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                                    )
+                                    OutlinedTextField(
+                                        value = categoryEmoji,
+                                        onValueChange = { categoryEmoji = it },
+                                        label = { Text("الأيقونة التعبيرية Emoji") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(onClick = {
+                                            if (categoryIdInput.isBlank() || categoryNameAr.isBlank()) return@Button
+                                            val cat = ServiceCategory(
+                                                id = categoryIdInput,
+                                                nameAr = categoryNameAr,
+                                                nameEn = categoryNameEn,
+                                                iconName = categoryEmoji,
+                                                isPinned = false,
+                                                orderIndex = 0
+                                            )
+                                            viewModel.saveCategory(cat)
+                                            catFormOpen = false
+                                            categoryIdInput = ""
+                                            categoryNameAr = ""
+                                            categoryNameEn = ""
+                                            categoryEmoji = ""
+                                        }, modifier = Modifier.weight(1f)) {
+                                            Text(if (isAr) "تسجيل وحفظ" else "Save Category")
+                                        }
+                                        TextButton(onClick = { catFormOpen = false }) { Text(if (isAr) "إلغاء" else "Cancel") }
+                                    }
+                                }
+                            }
+                        } else {
+                            Button(onClick = { catFormOpen = true }, modifier = Modifier.padding(top = 8.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(if (isAr) "إضافة قسم رئيسي جديد" else "Add Main Category")
+                            }
+                        }
+                    }
+
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(if (isAr) "قائمة الأقسام المتوفرة:" else "Active Main Categories:", fontWeight = FontWeight.Bold)
+                                categoriesList.forEach { cat ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("${cat.iconName} ${cat.nameAr} (${cat.id})", fontSize = 13.sp)
+                                        IconButton(onClick = { viewModel.deleteCategory(cat.id) }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Text(if (isAr) "التحكم بالتخصصات الفرعية (SubCategories Manager)" else "Subcategories Specialist Control", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        if (subFormOpen) {
+                            Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = subNameAr,
+                                        onValueChange = { subNameAr = it },
+                                        label = { Text("اسم التخصص بالعربية") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                                    )
+                                    OutlinedTextField(
+                                        value = subNameEn,
+                                        onValueChange = { subNameEn = it },
+                                        label = { Text("اسم التخصص بالإنجليزية") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                                    )
+
+                                    Text("الفئة الأب المرتبطة:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        categoriesList.take(3).forEach { cat ->
+                                            val isSel = subParentId == cat.id
+                                            Button(
+                                                onClick = { subParentId = cat.id },
+                                                colors = ButtonDefaults.buttonColors(containerColor = if (isSel) MaterialTheme.colorScheme.primary else Color.LightGray),
+                                                modifier = Modifier.weight(1f).height(30.dp),
+                                                contentPadding = PaddingValues(0.dp)
+                                            ) {
+                                                Text(cat.nameAr, fontSize = 9.sp)
+                                            }
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
+                                        Button(onClick = {
+                                            if (subNameAr.isBlank() || subParentId.isBlank()) return@Button
+                                            val sub = ServiceSubCategory(
+                                                id = UUID.randomUUID().toString(),
+                                                parentId = subParentId,
+                                                nameAr = subNameAr,
+                                                nameEn = subNameEn,
+                                                iconEmoji = "⚙️",
+                                                orderIndex = 0
+                                            )
+                                            viewModel.saveSubCategory(sub)
+                                            subFormOpen = false
+                                            subNameAr = ""
+                                            subNameEn = ""
+                                        }, modifier = Modifier.weight(1f)) {
+                                            Text(if (isAr) "تسجيل وحفظ" else "Save SubCategory")
+                                        }
+                                        TextButton(onClick = { subFormOpen = false }) { Text(if (isAr) "إلغاء" else "Cancel") }
+                                    }
+                                }
+                            }
+                        } else {
+                            Button(onClick = { subFormOpen = true }, modifier = Modifier.padding(top = 8.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(if (isAr) "إضافة فئة فرعية تخصصية جديدة" else "Add Subspecialty Category")
+                            }
+                        }
+                    }
+
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(if (isAr) "التخصصات الفرعية النشطة:" else "Active Subcategories:", fontWeight = FontWeight.Bold)
+                                subCategoriesList.forEach { sub ->
+                                    val parentName = categoriesList.find { it.id == sub.parentId }?.nameAr ?: sub.parentId
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("${sub.nameAr} ➔ [${parentName}]", fontSize = 12.sp)
+                                        IconButton(onClick = { viewModel.deleteSubCategory(sub.id) }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            2 -> {
+                // Applications Review Tab
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item {
+                        Text(
+                            text = if (isAr) "مراجعة وفحص طلبات الانضمام المعلقة (${joinRequests.size})" else "Join Applications Inbox (${joinRequests.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (isAr) "القبول يحول المهني تلقائياً ومباشرة كـ مزود معتمد وخدمة نشطة على الدليل للمستخدمين." else "Approving instantly generates an active listing in the directory.",
+                            fontSize = 12.sp, color = Color.Gray
+                        )
+                    }
+
+                    if (joinRequests.isEmpty()) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                                Text(if (isAr) "لا توجد طلبات انضمام معلقة حالياً." else "No pending registration requests currently.", color = Color.Gray)
+                            }
+                        }
+                    }
+
+                    items(joinRequests) { app ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text(text = app.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                    val badgeColor = when (app.status) {
+                                        "approved" -> Color(0xFF2E7D32)
+                                        "rejected" -> Color(0xFFC62828)
+                                        else -> Color(0xFFEF6C00)
+                                    }
+                                    Text(
+                                        text = if (isAr) {
+                                            when (app.status) {
+                                                "approved" -> "تم القبول"
+                                                "rejected" -> "مرفوض"
+                                                else -> "قيد المراجعة"
+                                            }
+                                        } else app.status.uppercase(),
+                                        color = badgeColor,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                Text(text = "رقم التواصل: ${app.phone}", fontSize = 13.sp)
+                                Text(text = "المنطقة / المحافظة: ${app.region}", fontSize = 13.sp)
+                                
+                                val pCat = categoriesList.find { it.id == app.categoryId }?.nameAr ?: app.categoryId
+                                val sCat = subCategoriesList.find { it.id == app.subCategoryId }?.nameAr ?: app.subCategoryId
+                                Text(text = "الفئة: $pCat | تخطيط فرعي: $sCat", fontSize = 13.sp)
+
+                                if (app.logoUrl.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = "صورة الطلب المرفقة:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    AsyncImage(
+                                        model = app.logoUrl,
+                                        contentDescription = "App logo",
+                                        modifier = Modifier.fillMaxWidth().height(110.dp).clip(RoundedCornerShape(8.dp)),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    if (app.status == "pending") {
+                                        Button(
+                                            onClick = { viewModel.updateJoinApplicationStatus(app.id, "approved") },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(if (isAr) "موافقة وقبول فوري" else "Approve & Publish")
+                                        }
+
+                                        Button(
+                                            onClick = { viewModel.updateJoinApplicationStatus(app.id, "rejected") },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(if (isAr) "رفض الطلب" else "Reject")
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = { viewModel.deleteJoinApplication(app.id) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = null)
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(if (isAr) "حذف السجل التاريخي" else "Delete Archive Log")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            3 -> {
+                // Live Configurator Tab
                 var titleArInput by remember { mutableStateOf(welcomeConfig.titleAr) }
                 var titleEnInput by remember { mutableStateOf(welcomeConfig.titleEn) }
                 var bodyArInput by remember { mutableStateOf(welcomeConfig.bodyAr) }
                 var bodyEnInput by remember { mutableStateOf(welcomeConfig.bodyEn) }
                 var imageUrlInput by remember { mutableStateOf(welcomeConfig.imageUrl) }
+                var themeInput by remember { mutableStateOf(welcomeConfig.globalTheme) }
+                
+                var phoneSupport by remember { mutableStateOf(welcomeConfig.supportPhone) }
+                var whatsappSupport by remember { mutableStateOf(welcomeConfig.supportWhatsapp) }
+                var emailSupport by remember { mutableStateOf(welcomeConfig.supportEmail) }
+                var bannerExtInput by remember { mutableStateOf(welcomeConfig.bannerExtUrl) }
+                var greetingInputAr by remember { mutableStateOf(welcomeConfig.assistantGreetingAr) }
+                var greetingInputEn by remember { mutableStateOf(welcomeConfig.assistantGreetingEn) }
+
                 var savedNotifier by remember { mutableStateOf(false) }
 
                 LazyColumn(
@@ -2120,210 +2400,545 @@ fun AdminDashboardScreen(viewModel: AppViewModel, isAr: Boolean) {
                 ) {
                     item {
                         Text(
-                            text = if (isAr) "تخصيص الرسالة الترحيبية والبنر الإعلاني" else "Customize Welcome Banner",
+                            text = if (isAr) "تخصيص المظهر وتعميم النصوص الإعلانية والترحيبية" else "Global System Settings Block",
                             fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleSmall
+                            style = MaterialTheme.typography.titleMedium
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isAr) 
-                                "سيتم بث هذه البيانات ومزامنتها على جميع أجهزة المراجعين فورا في نفس اللحظة بوجود الإنترنت." 
-                            else 
-                                "Changes saved here are broadcasted in real-time immediately to all users.",
-                            fontSize = 12.sp,
-                            color = Color.Gray
+                            text = if (isAr) "جميع التعديلات هنا تُبث وتسجل لحظياً (Real-time Sync) للشبكة." else "Modifications are pushed instantly across all connected nodes.",
+                            fontSize = 11.sp, color = Color.Gray
                         )
                     }
 
                     item {
                         if (savedNotifier) {
                             Text(
-                                text = if (isAr) "تم حفظ وتعميم البنر الترحيبي بنجاح على جميع الأجهزة!" else "Banner and welcome content synchronized successfully!",
+                                text = if (isAr) "تم الحفظ والتعميم الفوري بنجاح! 🎉" else "Saved and broadcasted successfully! 🎉",
                                 color = Color(0xFF2E7D32),
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 8.dp)
+                                modifier = Modifier.padding(bottom = 6.dp)
                             )
                         }
 
+                        // Theme select selector
+                        Text("اختر المظهر والخامة العامة للتطبيق (Dynamic Themes):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        val themeOptions = listOf(
+                            Pair("red_black", if (isAr) "الأحمر والأسود الافتراضي (Dark)" else "Red & Black (Dark)"),
+                            Pair("royal_indigo", if (isAr) "الأزرق الملكي الفاخر (Dark)" else "Royal Indigo (Dark)"),
+                            Pair("emerald_green", if (isAr) "الأخضر الزمردي المريح (Dark)" else "Emerald Green (Dark)"),
+                            Pair("slate_silver", if (isAr) "الفضي الكلاسيكي اللامع (Dark)" else "Slate Silver (Dark)"),
+                            Pair("ocean_teal", if (isAr) "التركواز المحيطي المهدئ (Dark)" else "Ocean Teal (Dark)"),
+                            Pair("beige_cream", if (isAr) "البيج الكريمي الدافئ (Light)" else "Warm Beige (Light)")
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            themeOptions.forEach { opt ->
+                                val isSelected = themeInput == opt.first
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(6.dp))
+                                        .clickable { themeInput = opt.first }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(selected = isSelected, onClick = { themeInput = opt.first })
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(opt.second, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    item {
                         OutlinedTextField(
                             value = titleArInput,
-                            onValueChange = { titleArInput = it },
-                            label = { Text(if (isAr) "عنوان الترحيب بالعربية" else "Arabic Title") },
-                            modifier = Modifier.fillMaxWidth()
+                            onValueChange = { titleArInput = it; savedNotifier = false },
+                            label = { Text("أبرز عناوين الترحيب (العربية)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                         )
                     }
 
                     item {
                         OutlinedTextField(
                             value = titleEnInput,
-                            onValueChange = { titleEnInput = it },
-                            label = { Text(if (isAr) "عنوان الترحيب بالإنجليزية" else "English Title") },
-                            modifier = Modifier.fillMaxWidth()
+                            onValueChange = { titleEnInput = it; savedNotifier = false },
+                            label = { Text("أبرز عناوين الترحيب (الإنجليزية)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                         )
                     }
 
                     item {
                         OutlinedTextField(
                             value = bodyArInput,
-                            onValueChange = { bodyArInput = it },
-                            label = { Text(if (isAr) "مضمون الترحيب بالعربية" else "Arabic Message Body") },
+                            onValueChange = { bodyArInput = it; savedNotifier = false },
+                            label = { Text("مضمون الترحيب (العربية)") },
                             modifier = Modifier.fillMaxWidth(),
-                            maxLines = 4
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                         )
                     }
 
                     item {
                         OutlinedTextField(
                             value = bodyEnInput,
-                            onValueChange = { bodyEnInput = it },
-                            label = { Text(if (isAr) "مضمون الترحيب بالإنجليزية" else "English Message Body") },
+                            onValueChange = { bodyEnInput = it; savedNotifier = false },
+                            label = { Text("مضمون الترحيب (الإنجليزية)") },
                             modifier = Modifier.fillMaxWidth(),
-                            maxLines = 4
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                         )
                     }
 
                     item {
                         OutlinedTextField(
                             value = imageUrlInput,
-                            onValueChange = { imageUrlInput = it },
-                            label = { Text(if (isAr) "رابط الصورة (JPG / PNG / GIF / أي صيغة)" else "Image URL (JPG / PNG / GIF / Any)") },
-                            placeholder = { Text("https://example.com/banner.png") },
-                            modifier = Modifier.fillMaxWidth()
+                            onValueChange = { imageUrlInput = it; savedNotifier = false },
+                            label = { Text("رابط الصورة الترحيبية (أية صيغة JPG / PNG / GIF )") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
                         )
                     }
 
                     item {
-                        if (imageUrlInput.isNotBlank()) {
-                            Text(
-                                text = if (isAr) "معاينة الصورة المرفقة:" else "Image Preview:",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            AsyncImage(
-                                model = imageUrlInput,
-                                contentDescription = "Ready for sync preview",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(130.dp)
-                                    .clip(RoundedCornerShape(8.dp)),
-                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                            )
-                        }
+                        OutlinedTextField(
+                            value = bannerExtInput,
+                            onValueChange = { bannerExtInput = it; savedNotifier = false },
+                            label = { Text("رابط البن الإعلاني الخارجي (موقع إلكتروني)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                        )
+                    }
+
+                    item {
+                        OutlinedTextField(
+                            value = phoneSupport,
+                            onValueChange = { phoneSupport = it; savedNotifier = false },
+                            label = { Text("رقم هاتف الدعم الفني للدليل") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                        )
+                    }
+
+                    item {
+                        OutlinedTextField(
+                            value = whatsappSupport,
+                            onValueChange = { whatsappSupport = it; savedNotifier = false },
+                            label = { Text("رقم واتساب المشرفين للدعم") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                        )
+                    }
+
+                    item {
+                        OutlinedTextField(
+                            value = emailSupport,
+                            onValueChange = { emailSupport = it; savedNotifier = false },
+                            label = { Text("البريد الإلكتروني للشكاوى") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                        )
+                    }
+
+                    item {
+                        OutlinedTextField(
+                            value = greetingInputAr,
+                            onValueChange = { greetingInputAr = it; savedNotifier = false },
+                            label = { Text("رسالة ترحيب المساعد الذكي (العربية)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                        )
+                    }
+
+                    item {
+                        OutlinedTextField(
+                            value = greetingInputEn,
+                            onValueChange = { greetingInputEn = it; savedNotifier = false },
+                            label = { Text("رسالة ترحيب المساعد الذكي (الإنجليزية)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF2C2C2C), unfocusedContainerColor = Color(0xFF2C2C2C))
+                        )
                     }
 
                     item {
                         Button(
                             onClick = {
-                                val updatedConfig = welcomeConfig.copy(
+                                val conf = welcomeConfig.copy(
+                                    globalTheme = themeInput,
                                     titleAr = titleArInput,
                                     titleEn = titleEnInput,
                                     bodyAr = bodyArInput,
                                     bodyEn = bodyEnInput,
-                                    imageUrl = imageUrlInput
+                                    imageUrl = imageUrlInput,
+                                    supportPhone = phoneSupport,
+                                    supportWhatsapp = whatsappSupport,
+                                    supportEmail = emailSupport,
+                                    bannerExtUrl = bannerExtInput,
+                                    assistantGreetingAr = greetingInputAr,
+                                    assistantGreetingEn = greetingInputEn
                                 )
-                                viewModel.saveWelcomeConfig(updatedConfig)
+                                viewModel.saveWelcomeConfig(conf)
                                 savedNotifier = true
                             },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
                         ) {
-                            Text(if (isAr) "مزامنة وتعميم الرسالة والصورة الآن" else "Sync Welcome Message & Photo Now")
+                            Text(if (isAr) "حفظ وتعميم التكوينات الآن" else "Sync Application Properties")
                         }
                     }
                 }
             }
-            2 -> {
-                // Category Sorting & Pin Status layout
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+        }
+    }
+}
+
+@Composable
+fun AdminLoginScreen(viewModel: AppViewModel, isAr: Boolean) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = null,
+                    modifier = Modifier.size(60.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = if (isAr) "بوابة حوكمة دليلي للأمن العالي" else "Admin High Security Gate",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = if (isAr) "الرجاء تسجيل الدخول ببيانات المشرف للتحكم" else "Please authenticate to manage directory databases.",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = Color.Gray
+                )
+
+                if (isError) {
+                    Text(
+                        text = if (isAr) "خطأ: اسم المستخدم أو كلمة المرور غير صحيحة!" else "Error: Invalid username or password",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = {
+                        username = it
+                        isError = false
+                    },
+                    label = { Text(if (isAr) "اسم المشرف" else "Admin Username") },
+                    modifier = Modifier.fillMaxWidth().testTag("admin_user_input"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedContainerColor = Color(0xFF2C2C2C),
+                        unfocusedContainerColor = Color(0xFF2C2C2C)
+                    ),
+                    textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = {
+                        password = it
+                        isError = false
+                    },
+                    label = { Text(if (isAr) "كلمة المرور" else "Security Password") },
+                    modifier = Modifier.fillMaxWidth().testTag("admin_password_input"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedContainerColor = Color(0xFF2C2C2C),
+                        unfocusedContainerColor = Color(0xFF2C2C2C)
+                    ),
+                    textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp),
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true
+                )
+
+                Button(
+                    onClick = {
+                        val authenticated = viewModel.authenticateAdmin(username, password)
+                        if (!authenticated) {
+                            isError = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp).testTag("admin_login_submit_btn"),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    item {
-                        Text(
-                            text = if (isAr) "تخصيص ترتيب الأقسام وتثبيتها" else "Category Pinning & Ordering Plan",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium
+                    Text(if (isAr) "أكّد هويّتي ودخول" else "Authenticate & Authenticate", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SmartAssistantPage(viewModel: AppViewModel, isAr: Boolean) {
+    val categoriesList by viewModel.categories.collectAsState()
+    val servicesList by viewModel.yemenServices.collectAsState()
+    val subCategoriesList by viewModel.subCategories.collectAsState()
+    val welcomeConfig by viewModel.welcomeConfig.collectAsState()
+
+    var userMessage by remember { mutableStateOf("") }
+    val chatMessages = remember {
+        mutableStateListOf<Pair<Boolean, String>>(
+            Pair(false, if (isAr) welcomeConfig.assistantGreetingAr else welcomeConfig.assistantGreetingEn)
+        )
+    }
+    var isGenerating by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // Futuristic Gradient Header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.secondary
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (isAr) 
-                                "الأقسام التي تملك علامة تثبيت تظهر أولاً، وتليها الأقسام المرتبة حسب الـ Index تنازلياً" 
-                            else 
-                                "Pinned categories display first, followed by others sorted by sorting index decreasingly.",
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
+                    )
+                )
+                .padding(16.dp)
+        ) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Stars,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isAr) "المساعد الذكي لدليلي اليمني" else "Dalili AI Smart Assistant",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val keyConfigured = com.yemenservices.app.BuildConfig.GEMINI_API_KEY.isNotBlank() && com.yemenservices.app.BuildConfig.GEMINI_API_KEY != "GEMINI_API_KEY_DEFAULT_VALUE"
+                    val statusText = if (keyConfigured) {
+                        if (isAr) "متصل بـ Gemini 2.5-Flash API 🟢" else "Online Gemini 2.5-Flash API 🟢"
+                    } else {
+                        if (isAr) "وضع الخبير المحلي (أوفلاين) ⚡" else "Offline Expert Mode ⚡"
                     }
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                }
+            }
+        }
 
-                    items(categoriesList) { category ->
-                        var isCatPinned by remember(category.id, category.isPinned) { mutableStateOf(category.isPinned) }
-                        var catOrderVal by remember(category.id, category.orderIndex) { mutableStateOf(category.orderIndex.toString()) }
-                        var isSavedState by remember { mutableStateOf(false) }
+        Spacer(modifier = Modifier.height(12.dp))
 
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                horizontalAlignment = if (isAr) Alignment.End else Alignment.Start
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = if (isAr) category.nameAr else category.nameEn,
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(if (isAr) "تثبيت بالقمة" else "Pin Category", fontSize = 12.sp)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Switch(
-                                            checked = isCatPinned,
-                                            onCheckedChange = { isCatPinned = it }
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    OutlinedTextField(
-                                        value = catOrderVal,
-                                        onValueChange = { catOrderVal = it },
-                                        label = { Text(if (isAr) "رقم الترتيب" else "Order Index") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(54.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Button(
-                                        onClick = {
-                                            val oIdx = catOrderVal.toIntOrNull() ?: 0
-                                            val updatedCat = category.copy(isPinned = isCatPinned, orderIndex = oIdx)
-                                            viewModel.saveCategory(updatedCat)
-                                            isSavedState = true
-                                        },
-                                        modifier = Modifier.height(40.dp)
-                                    ) {
-                                        Text(if (isAr) { if (isSavedState) "تم حفظه!" else "حفظ" } else { if (isSavedState) "Saved!" else "Save" }, fontSize = 12.sp)
-                                    }
-                                }
-                            }
+        // Chat messages box
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(chatMessages) { msg ->
+                val isUser = msg.first
+                val text = msg.second
+                
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
+                        ),
+                        shape = RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomStart = if (isUser) 16.dp else 0.dp,
+                            bottomEnd = if (isUser) 0.dp else 16.dp
+                        ),
+                        modifier = Modifier.widthIn(max = 280.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = if (isAr) TextAlign.Right else TextAlign.Left
+                            )
                         }
                     }
                 }
+            }
+        }
+
+        if (isGenerating) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isAr) "جاري التفكير والتوليد من دليلك الذكي..." else "Thinking & Generating...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Chat Input Row containing custom white custom text field
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = userMessage,
+                onValueChange = { userMessage = it },
+                placeholder = { Text(if (isAr) "اسأل دليلك عن الأطباء، الأسعار والتمريض والسباكة..." else "Ask about doctors, rates, filters...") },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+                    .testTag("assistant_input_field"),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedContainerColor = Color(0xFF2C2C2C),
+                    unfocusedContainerColor = Color(0xFF2C2C2C)
+                ),
+                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp),
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = {
+                    if (userMessage.isBlank() || isGenerating) return@IconButton
+                    val promptText = userMessage
+                    chatMessages.add(Pair(true, promptText))
+                    userMessage = ""
+                    isGenerating = true
+
+                    val coroutineScope = kotlinx.coroutines.MainScope()
+                    coroutineScope.launch {
+                        val keyConfigured = com.yemenservices.app.BuildConfig.GEMINI_API_KEY.isNotBlank() && com.yemenservices.app.BuildConfig.GEMINI_API_KEY != "GEMINI_API_KEY_DEFAULT_VALUE"
+                        var finalReply = ""
+                        if (keyConfigured) {
+                            try {
+                                finalReply = viewModel.getGeminiReply(promptText)
+                            } catch (e: Exception) {
+                                finalReply = ""
+                            }
+                        }
+
+                        // Fallback to local expert mode if empty or offline
+                        if (finalReply.isBlank() || finalReply.startsWith("Error")) {
+                            val norm = promptText.lowercase().trim()
+                            val servicesMatches = servicesList.filter { s ->
+                                s.nameAr.lowercase().contains(norm) ||
+                                s.nameEn.lowercase().contains(norm) ||
+                                s.descriptionAr.lowercase().contains(norm) ||
+                                s.descriptionEn.lowercase().contains(norm) ||
+                                s.category.lowercase().contains(norm) ||
+                                s.subCategory.lowercase().contains(norm)
+                            }
+                            
+                            val rep = StringBuilder()
+                            if (servicesMatches.isNotEmpty()) {
+                                if (isAr) {
+                                    rep.append("نتائج محرك البحث المحلي (وضع غير متصل بالإنترنت) ⚡:\n\n")
+                                    servicesMatches.take(5).forEach { s ->
+                                        val catName = categoriesList.find { it.id == s.category }?.nameAr ?: s.category
+                                        val subCatName = subCategoriesList.find { it.id == s.subCategory }?.nameAr ?: s.subCategory
+                                        rep.append("• *${s.nameAr}*\n  القسم: $catName | فرع: $subCatName\n  الهاتف للتواصل المباشر: ${s.phoneNumber}\n  التقييم: ⭐ ${s.rating}\n\n")
+                                    }
+                                } else {
+                                    rep.append("Local Offline Match Results ⚡:\n\n")
+                                    servicesMatches.take(5).forEach { s ->
+                                        val catName = categoriesList.find { it.id == s.category }?.nameEn ?: s.category
+                                        val subCatName = subCategoriesList.find { it.id == s.subCategory }?.nameEn ?: s.subCategory
+                                        rep.append("• *${s.nameEn}*\n  Category: $catName | SubCat: $subCatName\n  Phone: ${s.phoneNumber}\n  Rating: ⭐ ${s.rating}\n\n")
+                                    }
+                                }
+                            } else {
+                                if (isAr) {
+                                    rep.append("معذرةً، لم تعثر قاعدة البيانات المحلية (أوفلاين) على دقة محددة لاستعلامك.\n\nيمكنك الاتصال هاتفياً بالدعم أو فحص شبكة الإنترنت للوصول إلى تفويضات Gemini الذكي.")
+                                } else {
+                                    rep.append("Your local expert mode couldn't find matches.\n\nPlease check network capabilities to connect with the Cloud Gemini API.")
+                                }
+                            }
+                            finalReply = rep.toString()
+                        }
+
+                        chatMessages.add(Pair(false, finalReply))
+                        isGenerating = false
+                    }
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                enabled = !isGenerating
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Send,
+                    contentDescription = "Send",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
