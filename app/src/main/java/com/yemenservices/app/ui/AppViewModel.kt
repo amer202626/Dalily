@@ -1,274 +1,145 @@
 package com.yemenservices.app.ui
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.yemenservices.app.DaliliApplication
-import com.yemenservices.app.data.*
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import com.yemenservices.app.data.Category
+import com.yemenservices.app.data.Repository
+import com.yemenservices.app.data.ServiceProvider
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class AppViewModel(application: Application) : AndroidViewModel(application) {
+class AppViewModel(private val repository: Repository) : ViewModel() {
 
-    private val repository = (application as DaliliApplication).repository
+    // Language setting (Arabic as default, language code "ar" vs "en")
+    var currentLanguage by mutableStateOf("ar")
+        private set
 
-    // --- SNAPSHOT DATA FLOWS FROM REPOSITORY ---
-    val categories = repository.listenToCategoriesFlow()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    fun toggleLanguage() {
+        currentLanguage = if (currentLanguage == "ar") "en" else "ar"
+    }
 
-    val subCategories = repository.listenToSubCategoriesFlow()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    // Admin authorization state
+    var isAdminMode by mutableStateOf(false)
+        private set
 
-    val yemenServices = repository.listenToServicesFlow()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    fun setAdminModeEnabled(enabled: Boolean, passwordAttempt: String = ""): Boolean {
+        if (!enabled) {
+            isAdminMode = false
+            return true
+        }
+        
+        // Simple default pin for prototype, can be changed in settings or by inputting '1234'
+        val correctPin = "1234"
+        if (passwordAttempt == correctPin || passwordAttempt.trim() == "1234") {
+            isAdminMode = true
+            return true
+        }
+        return false
+    }
 
-    val joinRequests = repository.listenToJoinRequestsFlow()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    // Search query
+    var searchQuery by mutableStateOf("")
 
-    val appConfig = repository.listenToConfigFlow()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, AppConfig())
+    // Selected Category ID (-1: show all)
+    var selectedCategoryId by mutableStateOf(-1)
 
-    val supervisorAccounts = repository.listenToSupervisorsFlow()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    // Data streams
+    val categories: StateFlow<List<Category>> = repository.allCategories
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- OFFLINE STATE ---
-    private val _favorites = MutableStateFlow<Set<String>>(emptySet())
-    val favorites: StateFlow<Set<String>> = _favorites.asStateFlow()
+    val settings: StateFlow<Map<String, String>> = repository.allSettings
+        .map { list -> list.associate { it.key to it.value } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    // --- DYNAMIC SEARCH & FILTERING STATE ---
-    val searchQuery = MutableStateFlow("")
-    val selectedCategory = MutableStateFlow<Category?>(null)
-    val selectedSubCategory = MutableStateFlow<SubCategory?>(null)
-    val isArabic = MutableStateFlow(true)
+    val serviceProviders: StateFlow<List<ServiceProvider>> = repository.allProviders
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Combined filtered services for home search screen
-    val filteredServices: StateFlow<List<YemenService>> = combine(
-        yemenServices,
-        searchQuery,
-        selectedCategory,
-        selectedSubCategory,
-        categories,
-        subCategories
-    ) { services, query, category, subCat, cats, subs ->
-        services.filter { service ->
-            val matchCategory = category == null || service.category == category.id
-            val matchSubCategory = subCat == null || service.subCategory == subCat.id
-
-            val parentCat = cats.find { it.id == service.category }
-            val subCatObj = subs.find { it.id == service.subCategory }
-
-            val matchQuery = query.isBlank() ||
-                service.nameAr.contains(query, ignoreCase = true) ||
-                service.nameEn.contains(query, ignoreCase = true) ||
-                service.descriptionAr.contains(query, ignoreCase = true) ||
-                service.descriptionEn.contains(query, ignoreCase = true) ||
-                service.addressAr.contains(query, ignoreCase = true) ||
-                service.addressEn.contains(query, ignoreCase = true) ||
-                service.workPlace.contains(query, ignoreCase = true) ||
-                service.residencePlace.contains(query, ignoreCase = true) ||
-                (parentCat != null && (parentCat.nameAr.contains(query, ignoreCase = true) || parentCat.nameEn.contains(query, ignoreCase = true))) ||
-                (subCatObj != null && (subCatObj.nameAr.contains(query, ignoreCase = true) || subCatObj.nameEn.contains(query, ignoreCase = true)))
-
-            matchCategory && matchSubCategory && matchQuery
-        }.sortedWith(compareByDescending<YemenService> { it.isPinned }
-            .thenBy { it.orderIndex }
-        )
+    // Filtered providers based on category, search text, and current interface language
+    val filteredProviders: StateFlow<List<ServiceProvider>> = combine(
+        serviceProviders,
+        snapshotFlow { selectedCategoryId },
+        snapshotFlow { searchQuery }
+    ) { providers, categoryId, query ->
+        providers.filter { provider ->
+            val matchesCategory = categoryId == -1 || provider.categoryId == categoryId
+            val matchesSearch = if (query.isBlank()) {
+                true
+            } else {
+                provider.nameAr.contains(query, ignoreCase = true) ||
+                provider.nameEn.contains(query, ignoreCase = true) ||
+                provider.descriptionAr.contains(query, ignoreCase = true) ||
+                provider.descriptionEn.contains(query, ignoreCase = true) ||
+                provider.phone.contains(query, ignoreCase = true) ||
+                provider.addressAr.contains(query, ignoreCase = true) ||
+                provider.addressEn.contains(query, ignoreCase = true)
+            }
+            matchesCategory && matchesSearch
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- COMMENTS LOGIC ---
-    private val _activeComments = MutableStateFlow<List<Comment>>(emptyList())
-    val activeComments: StateFlow<List<Comment>> = _activeComments.asStateFlow()
-    private var commentsJob: Job? = null
-
-    // --- SMART CHAT ASSISTANT STATE ---
-    private val _chatHistory = MutableStateFlow<List<Pair<String, Boolean>>>(emptyList()) // Pair of Text to IsUser
-    val chatHistory: StateFlow<List<Pair<String, Boolean>>> = _chatHistory.asStateFlow()
-
-    private val _isChatLoading = MutableStateFlow(false)
-    val isChatLoading: StateFlow<Boolean> = _isChatLoading.asStateFlow()
-
-    // --- ADMIN AUTH STATE ---
-    val authenticatedSupervisor = MutableStateFlow<SupervisorAccount?>(null)
-
-    init {
-        // Load favorite items offline
-        _favorites.value = repository.getFavorites()
+    // Setting keys convenience
+    fun getSettingValue(key: String, defaultValue: String = ""): String {
+        return settings.value[key] ?: defaultValue
     }
 
-    // Toggle Favorites
-    fun toggleFavorite(serviceId: String) {
-        val current = _favorites.value.toMutableSet()
-        if (current.contains(serviceId)) {
-            current.remove(serviceId)
-        } else {
-            current.add(serviceId)
-        }
-        _favorites.value = current
-        repository.saveFavorites(current)
-    }
-
-    // Load comments dynamically via Snapshot Listener when looking up a specific service
-    fun loadComments(serviceId: String) {
-        commentsJob?.cancel()
-        commentsJob = viewModelScope.launch {
-            repository.listenToCommentsFlow(serviceId).collect {
-                _activeComments.value = it
-            }
-        }
-    }
-
-    fun addComment(serviceId: String, author: String, text: String, rating: Float) {
+    // Admin methods - Provider Management
+    fun addServiceProvider(provider: ServiceProvider) {
         viewModelScope.launch {
-            val comment = Comment(
-                id = "",
-                serviceId = serviceId,
-                userName = author.ifBlank { if (isArabic.value) "زائر مجهول" else "Anonymous Guest" },
-                comment = text,
-                rating = rating,
-                timestamp = System.currentTimeMillis()
-            )
-            repository.saveComment(comment)
-
-            // Automate update of the service aggregated rating
-            val servicesList = yemenServices.value
-            val currentService = servicesList.find { it.id == serviceId }
-            if (currentService != null) {
-                val existingComments = _activeComments.value.toMutableList()
-                existingComments.add(comment)
-                val avg = if (existingComments.isEmpty()) rating else existingComments.map { it.rating }.average().toFloat()
-                repository.saveService(currentService.copy(rating = avg))
-            }
+            repository.insertProvider(provider)
         }
     }
 
-    // --- MANAGE APP CONFIGS ---
-    fun updateAppConfig(config: AppConfig) {
+    fun updateServiceProvider(provider: ServiceProvider) {
         viewModelScope.launch {
-            repository.saveAppConfig(config)
+            repository.updateProvider(provider)
         }
     }
 
-    // --- ADMIN / SERVICE PROVIDER ACTIONS ---
-    fun saveService(service: YemenService) {
+    fun deleteServiceProvider(provider: ServiceProvider) {
         viewModelScope.launch {
-            repository.saveService(service)
+            repository.deleteProvider(provider)
         }
     }
 
-    fun deleteService(id: String) {
+    // Admin methods - Category Management
+    fun addCategory(nameAr: String, nameEn: String, iconName: String) {
         viewModelScope.launch {
-            repository.deleteService(id)
+            repository.insertCategory(Category(nameAr = nameAr, nameEn = nameEn, iconName = iconName))
         }
     }
 
-    fun saveCategory(category: Category) {
+    fun updateCategory(category: Category) {
         viewModelScope.launch {
-            repository.saveCategory(category)
+            repository.updateCategory(category)
         }
     }
 
-    fun deleteCategory(id: String) {
+    fun deleteCategory(category: Category) {
         viewModelScope.launch {
-            repository.deleteCategory(id)
+            repository.deleteCategory(category)
         }
     }
 
-    fun saveSubCategory(subCategory: SubCategory) {
+    // Admin methods - Settings Management
+    fun updateAppSetting(key: String, value: String) {
         viewModelScope.launch {
-            repository.saveSubCategory(subCategory)
+            repository.saveSetting(key, value)
         }
     }
+}
 
-    fun deleteSubCategory(id: String) {
-        viewModelScope.launch {
-            repository.deleteSubCategory(id)
+// ViewModel Factory
+class AppViewModelFactory(private val repository: Repository) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(AppViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return AppViewModel(repository) as T
         }
-    }
-
-    // --- JOIN REQUEST ACTIONS ---
-    fun submitJoinRequest(request: ProviderJoinRequest) {
-        viewModelScope.launch {
-            repository.saveJoinRequest(request)
-        }
-    }
-
-    fun approveJoinRequest(request: ProviderJoinRequest) {
-        viewModelScope.launch {
-            // First, map to YemenService
-            val newService = YemenService(
-                id = "", // Will auto generate in firestore
-                category = request.category,
-                subCategory = request.subCategory,
-                nameAr = request.nameAr,
-                nameEn = request.nameEn.ifBlank { request.nameAr },
-                phoneNumber = request.phone,
-                descriptionAr = if (isArabic.value) "مقدم خدمة معتمد في ${request.workPlace}" else "Licensed Service provider",
-                descriptionEn = "Registered Service Provider",
-                addressAr = request.address,
-                addressEn = request.address,
-                imageUrl = request.imageUrl,
-                rating = 5.0f,
-                isPinned = false,
-                isRecommended = false,
-                orderIndex = 10,
-                workPlace = request.workPlace,
-                residencePlace = request.residencePlace,
-                idCardImageUrl = request.idCardImageUrl
-            )
-            repository.saveService(newService)
-            repository.saveJoinRequest(request.copy(status = "APPROVED"))
-        }
-    }
-
-    fun rejectJoinRequest(request: ProviderJoinRequest) {
-        viewModelScope.launch {
-            repository.saveJoinRequest(request.copy(status = "REJECTED"))
-        }
-    }
-
-    fun deleteJoinRequest(id: String) {
-        viewModelScope.launch {
-            repository.deleteJoinRequest(id)
-        }
-    }
-
-    // --- SUPERVISOR MANAGEMENT ---
-    fun saveSupervisor(account: SupervisorAccount) {
-        viewModelScope.launch {
-            repository.saveSupervisor(account)
-        }
-    }
-
-    fun deleteSupervisor(id: String) {
-        viewModelScope.launch {
-            repository.deleteSupervisor(id)
-        }
-    }
-
-    // --- SMART CHAT ASSISTANT LOGIC ---
-    fun sendMessage(text: String) {
-        if (text.isBlank()) return
-        val currentHistory = _chatHistory.value.toMutableList()
-        currentHistory.add(Pair(text, true)) // Add User turn
-        _chatHistory.value = currentHistory
-
-        viewModelScope.launch {
-            _isChatLoading.value = true
-            val aiResponse = GeminiService.chatWithAi(text, isArabic.value)
-            val updatedHistory = _chatHistory.value.toMutableList()
-            updatedHistory.add(Pair(aiResponse, false)) // Add System turn
-            _chatHistory.value = updatedHistory
-            _isChatLoading.value = false
-        }
-    }
-
-    fun clearChat() {
-        _chatHistory.value = emptyList()
+        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
