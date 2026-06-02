@@ -3,430 +3,272 @@ package com.yemenservices.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.yemenservices.app.data.Repository
-import com.yemenservices.app.data.YemenService
-import com.yemenservices.app.data.ServiceCategory
-import com.yemenservices.app.data.ServiceSubCategory
-import com.yemenservices.app.data.JoinApplication
-import com.yemenservices.app.data.GeminiService
+import com.yemenservices.app.DaliliApplication
+import com.yemenservices.app.data.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.UUID
-
-enum class AppScreen {
-    Home,
-    ServicesList,
-    ServiceDetails,
-    SmartAssistant,
-    Favorites,
-    About,
-    AdminDashboard
-}
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = Repository(application)
+    private val repository = (application as DaliliApplication).repository
 
-    val isArabic = MutableStateFlow(true)
-    val currentScreen = MutableStateFlow(AppScreen.Home)
-    val searchQuery = MutableStateFlow("")
-    val selectedCategory = MutableStateFlow<String?>(null)
-    val selectedSubCategory = MutableStateFlow<String?>(null)
+    // --- SNAPSHOT DATA FLOWS FROM REPOSITORY ---
+    val categories = repository.listenToCategoriesFlow()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    private val _yemenServices = MutableStateFlow<List<YemenService>>(emptyList())
-    val yemenServices: StateFlow<List<YemenService>> = _yemenServices
+    val subCategories = repository.listenToSubCategoriesFlow()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    private val _categories = MutableStateFlow<List<ServiceCategory>>(emptyList())
-    val categories: StateFlow<List<ServiceCategory>> = combine(_categories, isArabic) { cats, isAr ->
-        cats.sortedWith(compareByDescending<ServiceCategory> { it.isPinned }
-            .thenBy { it.orderIndex }
-            .thenBy { if (isAr) it.nameAr else it.nameEn })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val yemenServices = repository.listenToServicesFlow()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    private val _subCategories = MutableStateFlow<List<ServiceSubCategory>>(emptyList())
-    val subCategories: StateFlow<List<ServiceSubCategory>> = combine(_subCategories, isArabic) { subs, isAr ->
-        subs.sortedWith(compareBy<ServiceSubCategory> { it.orderIndex }
-            .thenBy { if (isAr) it.nameAr else it.nameEn })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val joinRequests = repository.listenToJoinRequestsFlow()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    private val _joinApplications = MutableStateFlow<List<JoinApplication>>(emptyList())
-    val joinApplications: StateFlow<List<JoinApplication>> = _joinApplications
+    val appConfig = repository.listenToConfigFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppConfig())
 
-    val welcomeConfig = MutableStateFlow(com.yemenservices.app.data.WelcomeConfig())
+    val supervisorAccounts = repository.listenToSupervisorsFlow()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    // --- OFFLINE STATE ---
     private val _favorites = MutableStateFlow<Set<String>>(emptySet())
-    val favorites: StateFlow<Set<String>> = _favorites
+    val favorites: StateFlow<Set<String>> = _favorites.asStateFlow()
 
-    val selectedServiceForDetails = MutableStateFlow<YemenService?>(null)
-    val activeComments = MutableStateFlow<List<com.yemenservices.app.data.ServiceComment>>(emptyList())
-    private var commentsJob: kotlinx.coroutines.Job? = null
+    // --- DYNAMIC SEARCH & FILTERING STATE ---
+    val searchQuery = MutableStateFlow("")
+    val selectedCategory = MutableStateFlow<Category?>(null)
+    val selectedSubCategory = MutableStateFlow<SubCategory?>(null)
+    val isArabic = MutableStateFlow(true)
 
-    fun selectServiceForDetails(service: YemenService?) {
-        selectedServiceForDetails.value = service
-        commentsJob?.cancel()
-        if (service != null) {
-            commentsJob = viewModelScope.launch {
-                repository.listenToCommentsFlow(service.id).collect { comments ->
-                    activeComments.value = comments
-                }
-            }
-        } else {
-            activeComments.value = emptyList()
-        }
-    }
-
-    // Admin & Supervisor States
-    val isAdminAuthenticated = MutableStateFlow(false)
-    val isSupervisorAuthenticated = MutableStateFlow(false)
-    val supervisorCanAddProvider = MutableStateFlow(true)
-    val supervisorCanManageJoins = MutableStateFlow(true)
-    val activeSupervisorName = MutableStateFlow("")
-
-    fun saveSupervisor(supervisor: com.yemenservices.app.data.SupervisorAccount) {
-        val currentList = getSupervisorsList().toMutableList()
-        currentList.removeAll { it.username.trim() == supervisor.username.trim() }
-        currentList.add(supervisor)
-        val json = kotlinx.serialization.json.Json.encodeToString(
-            kotlinx.serialization.builtins.ListSerializer(com.yemenservices.app.data.SupervisorAccount.serializer()),
-            currentList
-        )
-        saveWelcomeConfig(welcomeConfig.value.copy(supervisorsJson = json))
-    }
-
-    fun deleteSupervisor(username: String) {
-        val currentList = getSupervisorsList().toMutableList()
-        currentList.removeAll { it.username.trim() == username.trim() }
-        val json = kotlinx.serialization.json.Json.encodeToString(
-            kotlinx.serialization.builtins.ListSerializer(com.yemenservices.app.data.SupervisorAccount.serializer()),
-            currentList
-        )
-        saveWelcomeConfig(welcomeConfig.value.copy(supervisorsJson = json))
-    }
-
-    fun getSupervisorsList(): List<com.yemenservices.app.data.SupervisorAccount> {
-        return try {
-            val json = welcomeConfig.value.supervisorsJson
-            if (json.startsWith("[")) {
-                kotlinx.serialization.json.Json.decodeFromString<List<com.yemenservices.app.data.SupervisorAccount>>(json)
-            } else emptyList()
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    // Standard Login supporting Super-admin and Supervisor levels
-    fun authenticateAdmin(user: String, pass: String): Boolean {
-        val trimmedUser = user.trim()
-        val trimmedPass = pass.trim()
-        
-        if ((trimmedUser == "admin" || trimmedUser == "WAM2026") && trimmedPass == "maher736462") {
-            isAdminAuthenticated.value = true
-            isSupervisorAuthenticated.value = false
-            return true
-        }
-        
-        // Check Supervisor records
-        try {
-            val list = getSupervisorsList()
-            val match = list.find { it.username.trim().equals(trimmedUser, ignoreCase = true) && it.password.trim() == trimmedPass }
-            if (match != null) {
-                isSupervisorAuthenticated.value = true
-                isAdminAuthenticated.value = false
-                supervisorCanAddProvider.value = match.canAddProvider
-                supervisorCanManageJoins.value = match.canManageJoins
-                activeSupervisorName.value = match.username
-                return true
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        
-        return false
-    }
-
-    // Backdoor secret login (triggered by clicking app logo/icon 5 times)
-    fun authenticateBackdoor(code: String): Boolean {
-        return if (code.trim() == "maher--736462") {
-            isAdminAuthenticated.value = true
-            isSupervisorAuthenticated.value = false
-            return true
-        } else {
-            false
-        }
-    }
-
-    fun logOutAdmin() {
-        isAdminAuthenticated.value = false
-        isSupervisorAuthenticated.value = false
-        if (currentScreen.value == AppScreen.AdminDashboard) {
-            currentScreen.value = AppScreen.Home
-        }
-    }
-
-    // Filter and Sort logic
+    // Combined filtered services for home search screen
     val filteredServices: StateFlow<List<YemenService>> = combine(
-        _yemenServices,
+        yemenServices,
         searchQuery,
         selectedCategory,
         selectedSubCategory,
-        isArabic
-    ) { services, query, category, subCat, isAr ->
+        categories,
+        subCategories
+    ) { services, query, category, subCat, cats, subs ->
         services.filter { service ->
-            val matchCategory = category == null || service.category == category
-            val matchSubCategory = subCat == null || service.subCategory == subCat
-            val matchQuery = query.isBlank() || 
+            val matchCategory = category == null || service.category == category.id
+            val matchSubCategory = subCat == null || service.subCategory == subCat.id
+
+            val parentCat = cats.find { it.id == service.category }
+            val subCatObj = subs.find { it.id == service.subCategory }
+
+            val matchQuery = query.isBlank() ||
                 service.nameAr.contains(query, ignoreCase = true) ||
                 service.nameEn.contains(query, ignoreCase = true) ||
-                service.phoneNumber.contains(query, ignoreCase = true) ||
                 service.descriptionAr.contains(query, ignoreCase = true) ||
-                service.descriptionEn.contains(query, ignoreCase = true)
+                service.descriptionEn.contains(query, ignoreCase = true) ||
+                service.addressAr.contains(query, ignoreCase = true) ||
+                service.addressEn.contains(query, ignoreCase = true) ||
+                service.workPlace.contains(query, ignoreCase = true) ||
+                service.residencePlace.contains(query, ignoreCase = true) ||
+                (parentCat != null && (parentCat.nameAr.contains(query, ignoreCase = true) || parentCat.nameEn.contains(query, ignoreCase = true))) ||
+                (subCatObj != null && (subCatObj.nameAr.contains(query, ignoreCase = true) || subCatObj.nameEn.contains(query, ignoreCase = true)))
+
             matchCategory && matchSubCategory && matchQuery
         }.sortedWith(compareByDescending<YemenService> { it.isPinned }
             .thenBy { it.orderIndex }
-            .thenBy { if (isAr) it.nameAr else it.nameEn })
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // --- COMMENTS LOGIC ---
+    private val _activeComments = MutableStateFlow<List<Comment>>(emptyList())
+    val activeComments: StateFlow<List<Comment>> = _activeComments.asStateFlow()
+    private var commentsJob: Job? = null
+
+    // --- SMART CHAT ASSISTANT STATE ---
+    private val _chatHistory = MutableStateFlow<List<Pair<String, Boolean>>>(emptyList()) // Pair of Text to IsUser
+    val chatHistory: StateFlow<List<Pair<String, Boolean>>> = _chatHistory.asStateFlow()
+
+    private val _isChatLoading = MutableStateFlow(false)
+    val isChatLoading: StateFlow<Boolean> = _isChatLoading.asStateFlow()
+
+    // --- ADMIN AUTH STATE ---
+    val authenticatedSupervisor = MutableStateFlow<SupervisorAccount?>(null)
+
     init {
-        // Collect real-time services with Firestore snapshot listener
-        viewModelScope.launch {
-            repository.listenToServicesFlow().collect { services ->
-                _yemenServices.value = services
-                // If a service details screen is open, keep the active service in sync with any edits!
-                val currentDetails = selectedServiceForDetails.value
-                if (currentDetails != null) {
-                    val updated = services.find { it.id == currentDetails.id }
-                    if (updated != null && updated != currentDetails) {
-                        selectedServiceForDetails.value = updated
-                    }
-                }
-            }
-        }
-
-        // Collect real-time categories with Firestore snapshot listener
-        viewModelScope.launch {
-            repository.listenToCategoriesFlow().collect { cats ->
-                _categories.value = cats
-            }
-        }
-
-        // Collect real-time sub-categories
-        viewModelScope.launch {
-            repository.listenToSubCategoriesFlow().collect { subs ->
-                _subCategories.value = subs
-            }
-        }
-
-        // Collect real-time Welcome configuration
-        viewModelScope.launch {
-            repository.listenToWelcomeConfigFlow().collect { config ->
-                welcomeConfig.value = config
-            }
-        }
-
-        // Collect real-time Join applications
-        viewModelScope.launch {
-            repository.listenToJoinApplicationsFlow().collect { apps ->
-                _joinApplications.value = apps
-            }
-        }
-
-        loadFavorites()
-    }
-
-    fun loadFavorites() {
+        // Load favorite items offline
         _favorites.value = repository.getFavorites()
     }
 
-    fun toggleFavorite(id: String) {
-        viewModelScope.launch {
-            repository.toggleFavorite(id)
-            loadFavorites()
+    // Toggle Favorites
+    fun toggleFavorite(serviceId: String) {
+        val current = _favorites.value.toMutableSet()
+        if (current.contains(serviceId)) {
+            current.remove(serviceId)
+        } else {
+            current.add(serviceId)
+        }
+        _favorites.value = current
+        repository.saveFavorites(current)
+    }
+
+    // Load comments dynamically via Snapshot Listener when looking up a specific service
+    fun loadComments(serviceId: String) {
+        commentsJob?.cancel()
+        commentsJob = viewModelScope.launch {
+            repository.listenToCommentsFlow(serviceId).collect {
+                _activeComments.value = it
+            }
         }
     }
 
-    fun isFavorite(id: String): Boolean {
-        return _favorites.value.contains(id)
-    }
-
-    fun saveService(
-        id: String?,
-        nameAr: String,
-        nameEn: String,
-        category: String,
-        subCategory: String,
-        phone: String,
-        whatsapp: String,
-        addressAr: String,
-        addressEn: String,
-        descriptionAr: String,
-        descriptionEn: String,
-        imageUrl: String = "",
-        isPinned: Boolean = false,
-        isRecommended: Boolean = false,
-        orderIndex: Int = 0,
-        latLngString: String = ""
-    ) {
-        val finalId = id ?: UUID.randomUUID().toString()
-        val service = YemenService(
-            id = finalId,
-            nameAr = nameAr,
-            nameEn = nameEn,
-            category = category,
-            subCategory = subCategory,
-            phoneNumber = phone,
-            whatsappNumber = whatsapp,
-            addressAr = addressAr,
-            addressEn = addressEn,
-            descriptionAr = descriptionAr,
-            descriptionEn = descriptionEn,
-            imageUrl = imageUrl,
-            rating = 4.5f,
-            isPinned = isPinned,
-            isRecommended = isRecommended,
-            orderIndex = orderIndex,
-            latLngString = latLngString
-        )
-        repository.saveService(service)
-    }
-
-    fun updateServiceRating(serviceId: String, newRating: Float) {
+    fun addComment(serviceId: String, author: String, text: String, rating: Float) {
         viewModelScope.launch {
-            val s = _yemenServices.value.find { it.id == serviceId } ?: return@launch
-            repository.saveService(s.copy(rating = newRating))
+            val comment = Comment(
+                id = "",
+                serviceId = serviceId,
+                userName = author.ifBlank { if (isArabic.value) "زائر مجهول" else "Anonymous Guest" },
+                comment = text,
+                rating = rating,
+                timestamp = System.currentTimeMillis()
+            )
+            repository.saveComment(comment)
+
+            // Automate update of the service aggregated rating
+            val servicesList = yemenServices.value
+            val currentService = servicesList.find { it.id == serviceId }
+            if (currentService != null) {
+                val existingComments = _activeComments.value.toMutableList()
+                existingComments.add(comment)
+                val avg = if (existingComments.isEmpty()) rating else existingComments.map { it.rating }.average().toFloat()
+                repository.saveService(currentService.copy(rating = avg))
+            }
+        }
+    }
+
+    // --- MANAGE APP CONFIGS ---
+    fun updateAppConfig(config: AppConfig) {
+        viewModelScope.launch {
+            repository.saveAppConfig(config)
+        }
+    }
+
+    // --- ADMIN / SERVICE PROVIDER ACTIONS ---
+    fun saveService(service: YemenService) {
+        viewModelScope.launch {
+            repository.saveService(service)
         }
     }
 
     fun deleteService(id: String) {
-        repository.deleteService(id)
+        viewModelScope.launch {
+            repository.deleteService(id)
+        }
     }
 
-    fun saveCategory(category: ServiceCategory) {
-        repository.saveCategory(category)
+    fun saveCategory(category: Category) {
+        viewModelScope.launch {
+            repository.saveCategory(category)
+        }
     }
 
     fun deleteCategory(id: String) {
-        repository.deleteCategory(id)
+        viewModelScope.launch {
+            repository.deleteCategory(id)
+        }
     }
 
-    fun saveSubCategory(sub: ServiceSubCategory) {
-        repository.saveSubCategory(sub)
+    fun saveSubCategory(subCategory: SubCategory) {
+        viewModelScope.launch {
+            repository.saveSubCategory(subCategory)
+        }
     }
 
     fun deleteSubCategory(id: String) {
-        repository.deleteSubCategory(id)
-    }
-
-    fun saveWelcomeConfig(config: com.yemenservices.app.data.WelcomeConfig) {
-        repository.saveWelcomeConfig(config)
-    }
-
-    fun addComment(serviceId: String, authorName: String, text: String, rating: Float) {
-        val comment = com.yemenservices.app.data.ServiceComment(
-            id = UUID.randomUUID().toString(),
-            serviceId = serviceId,
-            authorName = authorName,
-            commentText = text,
-            rating = rating,
-            timestamp = System.currentTimeMillis()
-        )
-        repository.saveComment(comment)
-    }
-
-    fun deleteComment(id: String) {
-        repository.deleteComment(id)
-    }
-
-    fun updateComment(comment: com.yemenservices.app.data.ServiceComment) {
-        repository.saveComment(comment)
-    }
-
-    // Join requests Submission
-    fun submitJoinApplication(
-        name: String,
-        phone: String,
-        region: String,
-        categoryId: String,
-        subCategoryId: String,
-        logoUrl: String,
-        workspaceAddress: String = "",
-        idCardUrl: String = "",
-        latLngString: String = ""
-    ) {
-        val app = JoinApplication(
-            id = UUID.randomUUID().toString(),
-            name = name,
-            phone = phone,
-            region = region,
-            categoryId = categoryId,
-            subCategoryId = subCategoryId,
-            logoUrl = logoUrl,
-            status = "pending",
-            timestamp = System.currentTimeMillis(),
-            workspaceAddress = workspaceAddress,
-            idCardUrl = idCardUrl,
-            latLngString = latLngString
-        )
-        repository.saveJoinApplication(app)
-    }
-
-    // Admin Accept or Reject requests
-    fun updateJoinApplicationStatus(appId: String, status: String) {
         viewModelScope.launch {
-            val app = _joinApplications.value.find { it.id == appId } ?: return@launch
-            val updatedApp = app.copy(status = status)
-            repository.saveJoinApplication(updatedApp)
-
-            if (status == "approved") {
-                // If approved, create a real active provider automatically!
-                val service = YemenService(
-                    id = UUID.randomUUID().toString(),
-                    nameAr = updatedApp.name,
-                    nameEn = updatedApp.name,
-                    category = updatedApp.categoryId,
-                    subCategory = updatedApp.subCategoryId,
-                    phoneNumber = updatedApp.phone,
-                    whatsappNumber = "",
-                    addressAr = updatedApp.workspaceAddress.ifBlank { "اليمن - ${updatedApp.region}" },
-                    addressEn = updatedApp.workspaceAddress.ifBlank { "Yemen - ${updatedApp.region}" },
-                    rating = 5.0f,
-                    imageUrl = updatedApp.logoUrl.ifBlank { "https://images.unsplash.com/photo-1521791136368-1a46827d0adf?w=400" },
-                    descriptionAr = "مزود خدمة يمني معتمد تم قبوله وتفعيله عبر طلب انضمام رسمي.",
-                    descriptionEn = "Verified Yemeni service provider approved and listed from join applications.",
-                    isPinned = false,
-                    isRecommended = true,
-                    orderIndex = 0,
-                    latLngString = updatedApp.latLngString
-                )
-                repository.saveService(service)
-            }
+            repository.deleteSubCategory(id)
         }
     }
 
-    fun deleteJoinApplication(id: String) {
-        repository.deleteJoinApplication(id)
-    }
-
-    fun resetToDefaults() {
-        repository.resetToDefaults()
-        loadFavorites()
-    }
-
-    // Gemini Chat Response Call
-    suspend fun getGeminiReply(query: String): String {
-        // Build a highly rich context representation of all main categories, subcategories and active providers
-        val contextBuilder = StringBuilder()
-        contextBuilder.append("الدليل يحتوي على الأقسام التالية: ")
-        _categories.value.forEach { contextBuilder.append("${it.nameAr} (${it.id}), ") }
-        contextBuilder.append("\nالفروع التخصصية: ")
-        _subCategories.value.forEach { contextBuilder.append("${it.nameAr} تابع لـ ${it.parentId}, ") }
-        contextBuilder.append("\nمزودي الخدمات الفعليين: ")
-        _yemenServices.value.forEach {
-            contextBuilder.append("${it.nameAr} (رقم الهاتف: ${it.phoneNumber}, الفرع: ${it.subCategory}, التقييم: ${it.rating}), ")
+    // --- JOIN REQUEST ACTIONS ---
+    fun submitJoinRequest(request: ProviderJoinRequest) {
+        viewModelScope.launch {
+            repository.saveJoinRequest(request)
         }
-        return GeminiService.getGeminiReply(query, contextBuilder.toString())
+    }
+
+    fun approveJoinRequest(request: ProviderJoinRequest) {
+        viewModelScope.launch {
+            // First, map to YemenService
+            val newService = YemenService(
+                id = "", // Will auto generate in firestore
+                category = request.category,
+                subCategory = request.subCategory,
+                nameAr = request.nameAr,
+                nameEn = request.nameEn.ifBlank { request.nameAr },
+                phoneNumber = request.phone,
+                descriptionAr = if (isArabic.value) "مقدم خدمة معتمد في ${request.workPlace}" else "Licensed Service provider",
+                descriptionEn = "Registered Service Provider",
+                addressAr = request.address,
+                addressEn = request.address,
+                imageUrl = request.imageUrl,
+                rating = 5.0f,
+                isPinned = false,
+                isRecommended = false,
+                orderIndex = 10,
+                workPlace = request.workPlace,
+                residencePlace = request.residencePlace,
+                idCardImageUrl = request.idCardImageUrl
+            )
+            repository.saveService(newService)
+            repository.saveJoinRequest(request.copy(status = "APPROVED"))
+        }
+    }
+
+    fun rejectJoinRequest(request: ProviderJoinRequest) {
+        viewModelScope.launch {
+            repository.saveJoinRequest(request.copy(status = "REJECTED"))
+        }
+    }
+
+    fun deleteJoinRequest(id: String) {
+        viewModelScope.launch {
+            repository.deleteJoinRequest(id)
+        }
+    }
+
+    // --- SUPERVISOR MANAGEMENT ---
+    fun saveSupervisor(account: SupervisorAccount) {
+        viewModelScope.launch {
+            repository.saveSupervisor(account)
+        }
+    }
+
+    fun deleteSupervisor(id: String) {
+        viewModelScope.launch {
+            repository.deleteSupervisor(id)
+        }
+    }
+
+    // --- SMART CHAT ASSISTANT LOGIC ---
+    fun sendMessage(text: String) {
+        if (text.isBlank()) return
+        val currentHistory = _chatHistory.value.toMutableList()
+        currentHistory.add(Pair(text, true)) // Add User turn
+        _chatHistory.value = currentHistory
+
+        viewModelScope.launch {
+            _isChatLoading.value = true
+            val aiResponse = GeminiService.chatWithAi(text, isArabic.value)
+            val updatedHistory = _chatHistory.value.toMutableList()
+            updatedHistory.add(Pair(aiResponse, false)) // Add System turn
+            _chatHistory.value = updatedHistory
+            _isChatLoading.value = false
+        }
+    }
+
+    fun clearChat() {
+        _chatHistory.value = emptyList()
     }
 }

@@ -1,1 +1,4 @@
-# Proguard rules for com.yemenservices.app
+# Add project specific ProGuard rules here.
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class com.google.firebase.** { *; }
