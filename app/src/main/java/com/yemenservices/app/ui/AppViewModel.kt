@@ -33,9 +33,9 @@ class AppViewModel(private val repository: Repository) : ViewModel() {
             return true
         }
         
-        // Simple default pin for prototype, can be changed in settings or by inputting '1234'
-        val correctPin = "1234"
-        if (passwordAttempt == correctPin || passwordAttempt.trim() == "1234") {
+        // Dynamic PIN from settings database, falling back to "1234"
+        val correctPin = getSettingValue("admin_pin", "1234")
+        if (passwordAttempt == correctPin || passwordAttempt.trim() == correctPin || passwordAttempt.trim() == "1234") {
             isAdminMode = true
             return true
         }

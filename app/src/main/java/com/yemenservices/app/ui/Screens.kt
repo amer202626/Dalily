@@ -1036,6 +1036,9 @@ fun AddProviderScreen(
     val lang = viewModel.currentLanguage
     val isAr = lang == "ar"
 
+    // Multi-step state: 1 = Basics, 2 = Contact/Location, 3 = Description & Custom Fields
+    var currentStep by remember { mutableStateOf(1) }
+
     // Inputs States
     var selectedCategory by remember { mutableStateOf<Category?>(null) }
     var nameAr by remember { mutableStateOf("") }
@@ -1065,7 +1068,13 @@ fun AddProviderScreen(
 
     var dropdownExpanded by remember { mutableStateOf(false) }
 
-    // UNIVERSAL SCROLLABLE LAYER - Fixed clipping, fits perfectly on any display size
+    // Stepper labels
+    val stepTitle = when (currentStep) {
+        1 -> if (isAr) "الخطوة ١: تحديد التصنيف والاسم" else "Step 1: Category & Name"
+        2 -> if (isAr) "الخطوة ٢: العنوان وأرقام الاتصال" else "Step 2: Address & Contact"
+        else -> if (isAr) "الخطوة ٣: الوصف والخانات الإضافية" else "Step 3: Description & Custom Fields"
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1073,6 +1082,7 @@ fun AddProviderScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // App Identity Header Card with Stepper Status
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = CardBackground),
@@ -1082,346 +1092,430 @@ fun AddProviderScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = if (isAr) "طلب إضافة مقدم خدمة جديد" else "Submit New Service Request",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AccentPink,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Start
-                )
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isAr) "طلب إضافة مقدم خدمة" else "Add New Service Provider",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentPink
+                    )
+                    
+                    Surface(
+                        color = BorderCyan.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = if (isAr) "$currentStep من ٣" else "Step $currentStep / 3",
+                            color = BorderCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
                 
+                // Progress indicator line
+                val progressFraction = currentStep / 3.0f
+                LinearProgressIndicator(
+                    progress = { progressFraction },
+                    color = AccentPink,
+                    trackColor = TextGray.copy(alpha = 0.2f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                )
+
                 Text(
-                    text = if (isAr) 
-                        "سيتم إدراج الخدمة فور تعبئتها. إذا كنت تسجل كمسؤول فستظهر الخدمة مباشرة معتمدة." 
-                        else "Fill out details to submit. If logged as Admin, it is instantly approved.",
-                    fontSize = 11.sp,
-                    color = TextGray
+                    text = stepTitle,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextLight
                 )
             }
         }
 
-        // 1. Category Selection
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = if (isAr) "اختر تصنيف الخدمة *" else "Select Service Category *",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextLight
-            )
-            
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = { dropdownExpanded = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("category_dropdown_trigger"),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextLight),
-                    border = BorderStroke(1.dp, TextGray.copy(alpha = 0.5f))
-                ) {
-                    val label = if (selectedCategory != null) {
-                        if (isAr) selectedCategory!!.nameAr else selectedCategory!!.nameEn
-                    } else {
-                        if (isAr) "اضغط لاختيار التصنيف" else "Press to pick category"
+        // Current Step Content Fields
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            when (currentStep) {
+                1 -> {
+                    // Category dropdown select
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = if (isAr) "اختر تصنيف الخدمة *" else "Select Service Category *",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextLight
+                        )
+                        
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { dropdownExpanded = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("category_dropdown_trigger"),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextLight),
+                                border = BorderStroke(1.dp, TextGray.copy(alpha = 0.5f))
+                            ) {
+                                val label = if (selectedCategory != null) {
+                                    if (isAr) selectedCategory!!.nameAr else selectedCategory!!.nameEn
+                                } else {
+                                    if (isAr) "اضغط لاختيار التصنيف" else "Press to pick category"
+                                }
+                                Text(
+                                    text = label,
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = if (isAr) TextAlign.Right else TextAlign.Left
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = BorderCyan
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = dropdownExpanded,
+                                onDismissRequest = { dropdownExpanded = false },
+                                modifier = Modifier
+                                    .fillMaxWidth(0.9f)
+                                    .background(CardBackground)
+                            ) {
+                                categories.forEach { category ->
+                                    DropdownMenuItem(
+                                        text = { 
+                                            Text(
+                                                text = if (isAr) category.nameAr else category.nameEn,
+                                                color = TextLight
+                                            ) 
+                                        },
+                                        onClick = {
+                                            selectedCategory = category
+                                            dropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
-                    Text(
-                        text = label,
-                        modifier = Modifier.weight(1f),
-                        textAlign = if (isAr) TextAlign.Right else TextAlign.Left
+
+                    // Service Name Ar
+                    OutlinedTextField(
+                        value = nameAr,
+                        onValueChange = { nameAr = it },
+                        label = { Text(if (isAr) "الاسم باللغة العربية *" else "Service Name (Arabic) *") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight,
+                            focusedBorderColor = BorderCyan,
+                            focusedLabelColor = BorderCyan
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_name_ar")
                     )
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = null,
-                        tint = BorderCyan
+
+                    // Service Name En
+                    OutlinedTextField(
+                        value = nameEn,
+                        onValueChange = { nameEn = it },
+                        label = { Text(if (isAr) "الاسم باللغة الإنجليزية" else "Service Name (English)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight,
+                            focusedBorderColor = BorderCyan,
+                            focusedLabelColor = BorderCyan
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
-                DropdownMenu(
-                    expanded = dropdownExpanded,
-                    onDismissRequest = { dropdownExpanded = false },
-                    modifier = Modifier
-                        .fillMaxWidth(0.9f)
-                        .background(CardBackground)
-                ) {
-                    categories.forEach { category ->
-                        DropdownMenuItem(
-                            text = { 
-                                Text(
-                                    text = if (isAr) category.nameAr else category.nameEn,
-                                    color = TextLight
-                                ) 
-                            },
-                            onClick = {
-                                selectedCategory = category
-                                dropdownExpanded = false
-                            }
+                2 -> {
+                    // Telephone Number
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text(if (isAr) "رقم الهاتف / الاتصال المباشر *" else "Direct Contact Phone *") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight,
+                            focusedBorderColor = BorderCyan,
+                            focusedLabelColor = BorderCyan
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_phone")
+                    )
+
+                    // Location/Address Ar
+                    OutlinedTextField(
+                        value = addressAr,
+                        onValueChange = { addressAr = it },
+                        label = { Text(if (isAr) "العنوان التفصيلي (عربي)" else "Address Details (Arabic)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight,
+                            focusedBorderColor = BorderCyan,
+                            focusedLabelColor = BorderCyan
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Location/Address En
+                    OutlinedTextField(
+                        value = addressEn,
+                        onValueChange = { addressEn = it },
+                        label = { Text(if (isAr) "العنوان التفصيلي (إنجليزي)" else "Address Details (English)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight,
+                            focusedBorderColor = BorderCyan,
+                            focusedLabelColor = BorderCyan
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Working times
+                    OutlinedTextField(
+                        value = workingHours,
+                        onValueChange = { workingHours = it },
+                        label = { Text(if (isAr) "ساعات العمل الرسمية (مثال: 8ص - 2ظ)" else "Official Hours (e.g., 24/7, 8am-2pm)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight,
+                            focusedBorderColor = BorderCyan,
+                            focusedLabelColor = BorderCyan
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                3 -> {
+                    // Description Arabic
+                    OutlinedTextField(
+                        value = descriptionAr,
+                        onValueChange = { descriptionAr = it },
+                        label = { Text(if (isAr) "تفاصيل وشرح عن الخدمة (عربي)" else "Service Description (Arabic)") },
+                        minLines = 2,
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight,
+                            focusedBorderColor = BorderCyan,
+                            focusedLabelColor = BorderCyan
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Description English
+                    OutlinedTextField(
+                        value = descriptionEn,
+                        onValueChange = { descriptionEn = it },
+                        label = { Text(if (isAr) "شرح عن الخدمة (بالإنجليزي)" else "Service Description (English)") },
+                        minLines = 2,
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight,
+                            focusedBorderColor = BorderCyan,
+                            focusedLabelColor = BorderCyan
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Customizable inputs panel (واعطاء صلاحيه تغيير الخانات)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CardBackground.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = if (isAr) "الخانات الإضافية القابلة للتخصيص" else "Customizable Dynamic Inputs",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentPink
+                        )
+
+                        OutlinedTextField(
+                            value = customF1Val,
+                            onValueChange = { customF1Val = it },
+                            label = { Text(f1L) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = TextLight,
+                                unfocusedTextColor = TextLight,
+                                focusedBorderColor = AccentPink,
+                                focusedLabelColor = AccentPink
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = customF2Val,
+                            onValueChange = { customF2Val = it },
+                            label = { Text(f2L) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = TextLight,
+                                unfocusedTextColor = TextLight,
+                                focusedBorderColor = AccentPink,
+                                focusedLabelColor = AccentPink
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = customF3Val,
+                            onValueChange = { customF3Val = it },
+                            label = { Text(f3L) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = TextLight,
+                                unfocusedTextColor = TextLight,
+                                focusedBorderColor = AccentPink,
+                                focusedLabelColor = AccentPink
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
             }
         }
 
-        // 2. Main Visual Fields
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Service Name Ar
-            OutlinedTextField(
-                value = nameAr,
-                onValueChange = { nameAr = it },
-                label = { Text(if (isAr) "الاسم باللغة العربية *" else "Service Name (Arabic) *") },
-                singleLine = true,
-                isError = nameAr.isBlank() && phone.isNotBlank(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = BorderCyan,
-                    focusedLabelColor = BorderCyan
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("input_name_ar")
-            )
-
-            // Service Name En
-            OutlinedTextField(
-                value = nameEn,
-                onValueChange = { nameEn = it },
-                label = { Text(if (isAr) "الاسم باللغة الإنجليزية" else "Service Name (English)") },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = BorderCyan,
-                    focusedLabelColor = BorderCyan
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Telephone Number
-            OutlinedTextField(
-                value = phone,
-                onValueChange = { phone = it },
-                label = { Text(if (isAr) "رقم الهاتف / الاتصال المباشر *" else "Direct Contact Phone *") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = BorderCyan,
-                    focusedLabelColor = BorderCyan
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("input_phone")
-            )
-
-            // Location/Address Ar
-            OutlinedTextField(
-                value = addressAr,
-                onValueChange = { addressAr = it },
-                label = { Text(if (isAr) "العنوان التفصيلي (عربي)" else "Address Details (Arabic)") },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = BorderCyan,
-                    focusedLabelColor = BorderCyan
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Location/Address En
-            OutlinedTextField(
-                value = addressEn,
-                onValueChange = { addressEn = it },
-                label = { Text(if (isAr) "العنوان التفصيلي (إنجليزي)" else "Address Details (English)") },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = BorderCyan,
-                    focusedLabelColor = BorderCyan
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Working times
-            OutlinedTextField(
-                value = workingHours,
-                onValueChange = { workingHours = it },
-                label = { Text(if (isAr) "ساعات العمل الرسمية (مثل: 8ص - 2ظ)" else "Official Hours (e.g., 24/7, 8am-2pm)") },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = BorderCyan,
-                    focusedLabelColor = BorderCyan
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Description Arabic
-            OutlinedTextField(
-                value = descriptionAr,
-                onValueChange = { descriptionAr = it },
-                label = { Text(if (isAr) "تفاصيل وشرح عن الخدمة (عربي)" else "Service Description (Arabic)") },
-                minLines = 2,
-                maxLines = 4,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = BorderCyan,
-                    focusedLabelColor = BorderCyan
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Description English
-            OutlinedTextField(
-                value = descriptionEn,
-                onValueChange = { descriptionEn = it },
-                label = { Text(if (isAr) "شرح عن الخدمة (بالإنجليزي)" else "Service Description (English)") },
-                minLines = 2,
-                maxLines = 4,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = BorderCyan,
-                    focusedLabelColor = BorderCyan
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        // 3. Dynamic Custom Admin Properties
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(CardBackground.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        // Navigation Stepper Buttons Bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = if (isAr) "الخانات الإضافية القابلة للتخصيص" else "Customizable Dynamic Inputs",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = AccentPink
-            )
-            
-            Text(
-                text = if (isAr) 
-                    "يمكن للمسؤول تغيير مسميات هذه الحقول الـ 3 من صفحة الإعدادات لتناسب مختلف الأنشطة." 
-                    else "The designation of these 3 fields is globally configurable from Settings.",
-                fontSize = 10.sp,
-                color = TextGray
-            )
-
-            OutlinedTextField(
-                value = customF1Val,
-                onValueChange = { customF1Val = it },
-                label = { Text(f1L) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = AccentPink,
-                    focusedLabelColor = AccentPink
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            OutlinedTextField(
-                value = customF2Val,
-                onValueChange = { customF2Val = it },
-                label = { Text(f2L) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = AccentPink,
-                    focusedLabelColor = AccentPink
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            OutlinedTextField(
-                value = customF3Val,
-                onValueChange = { customF3Val = it },
-                label = { Text(f3L) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextLight,
-                    unfocusedTextColor = TextLight,
-                    focusedBorderColor = AccentPink,
-                    focusedLabelColor = AccentPink
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        // Submit Action Button
-        Button(
-            onClick = {
-                if (selectedCategory == null) {
-                    Toast.makeText(context, if (isAr) "يجب اختيار تصنيف الخدمة أولاً!" else "Please select category first!", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-                if (nameAr.isBlank()) {
-                    Toast.makeText(context, if (isAr) "اسم الخدمة بالعربية مطلوب!" else "Service name in Arabic is required!", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-                if (phone.isBlank()) {
-                    Toast.makeText(context, if (isAr) "رقم جهة الاتصال مطلوب!" else "Contact phone is required!", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-
-                viewModel.addServiceProvider(
-                    ServiceProvider(
-                        categoryId = selectedCategory!!.id,
-                        nameAr = nameAr.trim(),
-                        nameEn = nameEn.trim().ifBlank { nameAr.trim() },
-                        phone = phone.trim(),
-                        addressAr = addressAr.trim(),
-                        addressEn = addressEn.trim().ifBlank { addressAr.trim() },
-                        descriptionAr = descriptionAr.trim(),
-                        descriptionEn = descriptionEn.trim(),
-                        workingHours = workingHours.trim(),
-                        isVerified = viewModel.isAdminMode, // Auto verify if admin is adding
-                        customField1Value = customF1Val.trim(),
-                        customField2Value = customF2Val.trim(),
-                        customField3Value = customF3Val.trim()
+            // Previous Button
+            if (currentStep > 1) {
+                OutlinedButton(
+                    onClick = { currentStep -= 1 },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextLight),
+                    border = BorderStroke(1.dp, TextGray.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = if (isAr) Icons.Default.ArrowForward else Icons.Default.ArrowBack, 
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
                     )
-                )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = if (isAr) "السابق" else "Back", fontSize = 13.sp)
+                }
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
+            }
 
-                Toast.makeText(context, if (isAr) "تم إدراج الخدمة بنجاح!" else "Added successfully!", Toast.LENGTH_LONG).show()
-                
-                // Clear state
-                nameAr = ""
-                nameEn = ""
-                phone = ""
-                addressAr = ""
-                addressEn = ""
-                descriptionAr = ""
-                descriptionEn = ""
-                workingHours = ""
-                customF1Val = ""
-                customF2Val = ""
-                customF3Val = ""
-                selectedCategory = null
+            Spacer(modifier = Modifier.width(16.dp))
 
-                onNavigateToHome()
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = AccentPink),
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag("submit_provider_btn")
-        ) {
-            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (isAr) "إضافة وحفظ في الدليل المحلي" else "Save Locally in Yemen Directory",
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp
-            )
+            // Next OR Save Locally Button
+            if (currentStep < 3) {
+                Button(
+                    onClick = {
+                        // Validate basics in Step 1
+                        if (currentStep == 1) {
+                            if (selectedCategory == null) {
+                                Toast.makeText(context, if (isAr) "يجب اختيار تصنيف الخدمة أولاً!" else "Please select category first!", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (nameAr.isBlank()) {
+                                Toast.makeText(context, if (isAr) "اسم الخدمة بالعربية مطلوب!" else "Service name in Arabic is required!", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                        }
+                        currentStep += 1
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentPink),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(text = if (isAr) "التالي" else "Next", fontSize = 13.sp)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = if (isAr) Icons.Default.ArrowBack else Icons.Default.ArrowForward, 
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else {
+                // Submit Provider Button
+                Button(
+                    onClick = {
+                        if (phone.isBlank()) {
+                            Toast.makeText(context, if (isAr) "رقم جهة الاتصال مطلوب (الخطوة ٢)!" else "Contact phone is required!", Toast.LENGTH_SHORT).show()
+                            currentStep = 2
+                            return@Button
+                        }
+
+                        viewModel.addServiceProvider(
+                            ServiceProvider(
+                                categoryId = selectedCategory!!.id,
+                                nameAr = nameAr.trim(),
+                                nameEn = nameEn.trim().ifBlank { nameAr.trim() },
+                                phone = phone.trim(),
+                                addressAr = addressAr.trim(),
+                                addressEn = addressEn.trim().ifBlank { addressAr.trim() },
+                                descriptionAr = descriptionAr.trim(),
+                                descriptionEn = descriptionEn.trim(),
+                                workingHours = workingHours.trim(),
+                                isVerified = viewModel.isAdminMode, // Auto verify if admin is adding
+                                customField1Value = customF1Val.trim(),
+                                customField2Value = customF2Val.trim(),
+                                customField3Value = customF3Val.trim()
+                            )
+                        )
+
+                        Toast.makeText(context, if (isAr) "تم إضافة مقدم الخدمة بنجاح!" else "Added successfully!", Toast.LENGTH_LONG).show()
+                        
+                        // Reset form state
+                        nameAr = ""
+                        nameEn = ""
+                        phone = ""
+                        addressAr = ""
+                        addressEn = ""
+                        descriptionAr = ""
+                        descriptionEn = ""
+                        workingHours = ""
+                        customF1Val = ""
+                        customF2Val = ""
+                        customF3Val = ""
+                        selectedCategory = null
+                        currentStep = 1
+
+                        onNavigateToHome()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BorderCyan),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("submit_provider_btn")
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isAr) "حفظ وتوثيق" else "Save Locally",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
         }
     }
 }
@@ -1430,6 +1524,7 @@ fun AddProviderScreen(
 fun AboutAppScreen(viewModel: AppViewModel) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
     
     val lang = viewModel.currentLanguage
     val isAr = lang == "ar"
@@ -1442,6 +1537,7 @@ fun AboutAppScreen(viewModel: AppViewModel) {
     val phone = settings["contact_phone"] ?: "+96777777777"
     val rulesAr = settings["app_rules_ar"] ?: "1. تصفح وتواصل مباشرة."
     val rulesEn = settings["app_rules_en"] ?: "1. Direct contact with providers."
+    val adminPinVal = settings["admin_pin"] ?: "1234"
 
     // Customize mode inside About screen if Admin is active
     var editAboutMode by remember { mutableStateOf(false) }
@@ -1455,6 +1551,7 @@ fun AboutAppScreen(viewModel: AppViewModel) {
     var editContactPhone by remember { mutableStateOf(phone) }
     var editRulesAr by remember { mutableStateOf(rulesAr) }
     var editRulesEn by remember { mutableStateOf(rulesEn) }
+    var editAdminPin by remember { mutableStateOf(adminPinVal) }
 
     var customF1LabelAr by remember { mutableStateOf(settings["custom_field_1_label_ar"] ?: "") }
     var customF1LabelEn by remember { mutableStateOf(settings["custom_field_1_label_en"] ?: "") }
@@ -1462,6 +1559,14 @@ fun AboutAppScreen(viewModel: AppViewModel) {
     var customF2LabelEn by remember { mutableStateOf(settings["custom_field_2_label_en"] ?: "") }
     var customF3LabelAr by remember { mutableStateOf(settings["custom_field_3_label_ar"] ?: "") }
     var customF3LabelEn by remember { mutableStateOf(settings["custom_field_3_label_en"] ?: "") }
+
+    // Modal popup triggers for Category Editing
+    var categoryToEdit by remember { mutableStateOf<Category?>(null) }
+    var categoryToDelete by remember { mutableStateOf<Category?>(null) }
+
+    var categoryEditAr by remember { mutableStateOf("") }
+    var categoryEditEn by remember { mutableStateOf("") }
+    var categoryEditIcon by remember { mutableStateOf("") }
 
     // Sync state when entering or settings update
     LaunchedEffect(settings, editAboutMode) {
@@ -1474,6 +1579,7 @@ fun AboutAppScreen(viewModel: AppViewModel) {
             editContactPhone = phone
             editRulesAr = rulesAr
             editRulesEn = rulesEn
+            editAdminPin = adminPinVal
             customF1LabelAr = settings["custom_field_1_label_ar"] ?: "سنة التأسيس"
             customF1LabelEn = settings["custom_field_1_label_en"] ?: "Est. Year"
             customF2LabelAr = settings["custom_field_2_label_ar"] ?: "طريقة الدفع"
@@ -1481,6 +1587,120 @@ fun AboutAppScreen(viewModel: AppViewModel) {
             customF3LabelAr = settings["custom_field_3_label_ar"] ?: "ملاحظات"
             customF3LabelEn = settings["custom_field_3_label_en"] ?: "Notes"
         }
+    }
+
+    // Category Update Dialog
+    if (categoryToEdit != null) {
+        AlertDialog(
+            onDismissRequest = { categoryToEdit = null },
+            title = { 
+                Text(
+                    text = if (isAr) "تعديل تصنيف الخدمة 🛠" else "Edit Theme Category 🛠",
+                    color = BorderCyan,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                ) 
+            },
+            containerColor = CardBackground,
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = categoryEditAr,
+                        onValueChange = { categoryEditAr = it },
+                        label = { Text("الاسم باللغة العربية") },
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextLight, unfocusedTextColor = TextLight, focusedBorderColor = BorderCyan, focusedLabelColor = BorderCyan),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = categoryEditEn,
+                        onValueChange = { categoryEditEn = it },
+                        label = { Text("Category Name (English)") },
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextLight, unfocusedTextColor = TextLight, focusedBorderColor = BorderCyan, focusedLabelColor = BorderCyan),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = categoryEditIcon,
+                        onValueChange = { categoryEditIcon = it },
+                        label = { Text("اسم الأيقونة (medical_services, build, school)") },
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextLight, unfocusedTextColor = TextLight, focusedBorderColor = BorderCyan, focusedLabelColor = BorderCyan),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (categoryEditAr.isNotBlank() && categoryEditEn.isNotBlank()) {
+                            viewModel.updateCategory(
+                                categoryToEdit!!.copy(
+                                    nameAr = categoryEditAr.trim(),
+                                    nameEn = categoryEditEn.trim(),
+                                    iconName = categoryEditIcon.trim().ifBlank { "category" }
+                                )
+                            )
+                            Toast.makeText(context, if (isAr) "تمت ملاءمة وتحديث التصنيف بنجاح!" else "Category successfully processed!", Toast.LENGTH_SHORT).show()
+                            categoryToEdit = null
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BorderCyan)
+                ) {
+                    Text(if (isAr) "حفظ وحقن التغييرات" else "Save Category")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { categoryToEdit = null }) {
+                    Text(if (isAr) "إلغاء المتابعة" else "Dismiss", color = TextGray)
+                }
+            }
+        )
+    }
+
+    // Category Deletion Security Prompt
+    if (categoryToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { categoryToDelete = null },
+            title = { 
+                Text(
+                    text = if (isAr) "تأكيد حذف تصنيف الدليل ❗" else "Safety Double Check ❗",
+                    color = AccentPink,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                ) 
+            },
+            text = { 
+                Text(
+                    text = if (isAr) 
+                        "هل أنت متأكد من رغبتك في حذف التصنيف \"${categoryToDelete!!.nameAr}\"؟ قد يؤدي هذا العمل لقطع الاتصال وفصل مقدمي الخدمة التابعين له." 
+                        else "This will permanently detach all service providers registered under \"${categoryToDelete!!.nameEn}\". Are you absolutely sure?",
+                    color = TextLight,
+                    fontSize = 13.sp
+                ) 
+            },
+            containerColor = CardBackground,
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteCategory(categoryToDelete!!)
+                        Toast.makeText(context, if (isAr) "تم حذف التصنيف بنجاح" else "Deleted!", Toast.LENGTH_SHORT).show()
+                        categoryToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentPink)
+                ) {
+                    Text(if (isAr) "احذف فوراً" else "Delete permanently")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { categoryToDelete = null }) {
+                    Text(if (isAr) "إلغاء وعودة" else "Back", color = TextGray)
+                }
+            }
+        )
     }
 
     Column(
@@ -1534,7 +1754,7 @@ fun AboutAppScreen(viewModel: AppViewModel) {
                 )
 
                 if (viewModel.isAdminMode) {
-                    Divider(color = TextGray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 10.dp))
+                    HorizontalDivider(color = TextGray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 10.dp))
                     
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1573,14 +1793,16 @@ fun AboutAppScreen(viewModel: AppViewModel) {
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = CardBackground),
-                modifier = Modifier.fillMaxWidth().border(1.dp, BorderCyan, RoundedCornerShape(16.dp))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, BorderCyan, RoundedCornerShape(16.dp))
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = if (isAr) "لوحة تعديل وتعديل كل شيء بالتطبيق" else "Full App Customization Controller",
+                        text = if (isAr) "لوحة تعديل وتخصيص كل شيء بالتطبيق" else "Full App Customization Controller",
                         fontWeight = FontWeight.Bold,
                         color = BorderCyan,
                         fontSize = 15.sp
@@ -1622,8 +1844,18 @@ fun AboutAppScreen(viewModel: AppViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    // Dynamic Admin PIN Override Passphrase
+                    OutlinedTextField(
+                        value = editAdminPin,
+                        onValueChange = { editAdminPin = it },
+                        label = { Text(if (isAr) "تغيير رمز مرور المسؤول (PIN)" else "Change Admin Access PIN") },
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextLight, unfocusedTextColor = TextLight, focusedLabelColor = BorderCyan, focusedBorderColor = BorderCyan),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     // Dynamic Universal Inputs/Labels Customizer (واعطاء صلاحيه تغيير الخانات)
-                    Divider(color = TextGray.copy(alpha = 0.2f))
+                    HorizontalDivider(color = TextGray.copy(alpha = 0.2f))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1631,7 +1863,7 @@ fun AboutAppScreen(viewModel: AppViewModel) {
                     ) {
                         Icon(Icons.Default.DynamicForm, contentDescription = null, tint = AccentPink, modifier = Modifier.size(16.dp))
                         Text(
-                            text = if (isAr) "تخصيص مسميات خانات مقدم الخدمة" else "Customize Provider Labels",
+                            text = if (isAr) "تخصيص الخانات الإضافية لمقدم الخدمة" else "Configure Additional Input Labels",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = AccentPink
@@ -1701,7 +1933,95 @@ fun AboutAppScreen(viewModel: AppViewModel) {
                         }
                     }
 
-                    Divider(color = TextGray.copy(alpha = 0.2f))
+                    // Category Management Console Submodule
+                    HorizontalDivider(color = TextGray.copy(alpha = 0.2f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.Category, contentDescription = null, tint = BorderCyan, modifier = Modifier.size(16.dp))
+                        Text(
+                            text = if (isAr) "إدارة وتعديل تصنيفات الدليل الرئيسي" else "Manage Guide Classifications",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BorderCyan
+                        )
+                    }
+
+                    categories.forEach { category ->
+                        Surface(
+                            color = CardBackground.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, TextGray.copy(alpha = 0.15f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = getIconByName(category.iconName),
+                                        contentDescription = null,
+                                        tint = AccentPink,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = category.nameAr,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextLight
+                                        )
+                                        Text(
+                                            text = category.nameEn,
+                                            fontSize = 11.sp,
+                                            color = TextGray
+                                        )
+                                    }
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    IconButton(
+                                        onClick = {
+                                            categoryToEdit = category
+                                            categoryEditAr = category.nameAr
+                                            categoryEditEn = category.nameEn
+                                            categoryEditIcon = category.iconName
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Edit Category",
+                                            tint = BorderCyan,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { categoryToDelete = category },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete Category",
+                                            tint = AccentPink,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = TextGray.copy(alpha = 0.2f))
 
                     // Contacts Editor
                     OutlinedTextField(
@@ -1761,6 +2081,7 @@ fun AboutAppScreen(viewModel: AppViewModel) {
                                 viewModel.updateAppSetting("contact_phone", editContactPhone.trim())
                                 viewModel.updateAppSetting("app_rules_ar", editRulesAr.trim())
                                 viewModel.updateAppSetting("app_rules_en", editRulesEn.trim())
+                                viewModel.updateAppSetting("admin_pin", editAdminPin.trim().ifBlank { "1234" })
                                 
                                 viewModel.updateAppSetting("custom_field_1_label_ar", customF1LabelAr.trim())
                                 viewModel.updateAppSetting("custom_field_1_label_en", customF1LabelEn.trim())
@@ -1775,7 +2096,7 @@ fun AboutAppScreen(viewModel: AppViewModel) {
                             colors = ButtonDefaults.buttonColors(containerColor = BorderCyan),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(if (isAr) "حفظ وحفظ التغييرات" else "Save Settings")
+                            Text(if (isAr) "حفظ وتثبيت التغييرات" else "Save Settings")
                         }
                     }
                 }
