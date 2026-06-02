@@ -79,7 +79,93 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Admin & Supervisor States
     val isAdminAuthenticated = MutableStateFlow(false)
+    val isSupervisorAuthenticated = MutableStateFlow(false)
+    val supervisorCanAddProvider = MutableStateFlow(true)
+    val supervisorCanManageJoins = MutableStateFlow(true)
+    val activeSupervisorName = MutableStateFlow("")
+
+    fun saveSupervisor(supervisor: com.yemenservices.app.data.SupervisorAccount) {
+        val currentList = getSupervisorsList().toMutableList()
+        currentList.removeAll { it.username.trim() == supervisor.username.trim() }
+        currentList.add(supervisor)
+        val json = kotlinx.serialization.json.Json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(com.yemenservices.app.data.SupervisorAccount.serializer()),
+            currentList
+        )
+        saveWelcomeConfig(welcomeConfig.value.copy(supervisorsJson = json))
+    }
+
+    fun deleteSupervisor(username: String) {
+        val currentList = getSupervisorsList().toMutableList()
+        currentList.removeAll { it.username.trim() == username.trim() }
+        val json = kotlinx.serialization.json.Json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(com.yemenservices.app.data.SupervisorAccount.serializer()),
+            currentList
+        )
+        saveWelcomeConfig(welcomeConfig.value.copy(supervisorsJson = json))
+    }
+
+    fun getSupervisorsList(): List<com.yemenservices.app.data.SupervisorAccount> {
+        return try {
+            val json = welcomeConfig.value.supervisorsJson
+            if (json.startsWith("[")) {
+                kotlinx.serialization.json.Json.decodeFromString<List<com.yemenservices.app.data.SupervisorAccount>>(json)
+            } else emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    // Standard Login supporting Super-admin and Supervisor levels
+    fun authenticateAdmin(user: String, pass: String): Boolean {
+        val trimmedUser = user.trim()
+        val trimmedPass = pass.trim()
+        
+        if ((trimmedUser == "admin" || trimmedUser == "WAM2026") && trimmedPass == "maher736462") {
+            isAdminAuthenticated.value = true
+            isSupervisorAuthenticated.value = false
+            return true
+        }
+        
+        // Check Supervisor records
+        try {
+            val list = getSupervisorsList()
+            val match = list.find { it.username.trim().equals(trimmedUser, ignoreCase = true) && it.password.trim() == trimmedPass }
+            if (match != null) {
+                isSupervisorAuthenticated.value = true
+                isAdminAuthenticated.value = false
+                supervisorCanAddProvider.value = match.canAddProvider
+                supervisorCanManageJoins.value = match.canManageJoins
+                activeSupervisorName.value = match.username
+                return true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        
+        return false
+    }
+
+    // Backdoor secret login (triggered by clicking app logo/icon 5 times)
+    fun authenticateBackdoor(code: String): Boolean {
+        return if (code.trim() == "maher--736462") {
+            isAdminAuthenticated.value = true
+            isSupervisorAuthenticated.value = false
+            return true
+        } else {
+            false
+        }
+    }
+
+    fun logOutAdmin() {
+        isAdminAuthenticated.value = false
+        isSupervisorAuthenticated.value = false
+        if (currentScreen.value == AppScreen.AdminDashboard) {
+            currentScreen.value = AppScreen.Home
+        }
+    }
 
     // Filter and Sort logic
     val filteredServices: StateFlow<List<YemenService>> = combine(
@@ -181,7 +267,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         imageUrl: String = "",
         isPinned: Boolean = false,
         isRecommended: Boolean = false,
-        orderIndex: Int = 0
+        orderIndex: Int = 0,
+        latLngString: String = ""
     ) {
         val finalId = id ?: UUID.randomUUID().toString()
         val service = YemenService(
@@ -200,7 +287,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             rating = 4.5f,
             isPinned = isPinned,
             isRecommended = isRecommended,
-            orderIndex = orderIndex
+            orderIndex = orderIndex,
+            latLngString = latLngString
         )
         repository.saveService(service)
     }
@@ -263,7 +351,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         region: String,
         categoryId: String,
         subCategoryId: String,
-        logoUrl: String
+        logoUrl: String,
+        workspaceAddress: String = "",
+        idCardUrl: String = "",
+        latLngString: String = ""
     ) {
         val app = JoinApplication(
             id = UUID.randomUUID().toString(),
@@ -274,7 +365,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             subCategoryId = subCategoryId,
             logoUrl = logoUrl,
             status = "pending",
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            workspaceAddress = workspaceAddress,
+            idCardUrl = idCardUrl,
+            latLngString = latLngString
         )
         repository.saveJoinApplication(app)
     }
@@ -296,15 +390,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     subCategory = updatedApp.subCategoryId,
                     phoneNumber = updatedApp.phone,
                     whatsappNumber = "",
-                    addressAr = "اليمن - ${updatedApp.region}",
-                    addressEn = "Yemen - ${updatedApp.region}",
+                    addressAr = updatedApp.workspaceAddress.ifBlank { "اليمن - ${updatedApp.region}" },
+                    addressEn = updatedApp.workspaceAddress.ifBlank { "Yemen - ${updatedApp.region}" },
                     rating = 5.0f,
                     imageUrl = updatedApp.logoUrl.ifBlank { "https://images.unsplash.com/photo-1521791136368-1a46827d0adf?w=400" },
                     descriptionAr = "مزود خدمة يمني معتمد تم قبوله وتفعيله عبر طلب انضمام رسمي.",
                     descriptionEn = "Verified Yemeni service provider approved and listed from join applications.",
                     isPinned = false,
                     isRecommended = true,
-                    orderIndex = 0
+                    orderIndex = 0,
+                    latLngString = updatedApp.latLngString
                 )
                 repository.saveService(service)
             }
@@ -318,33 +413,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun resetToDefaults() {
         repository.resetToDefaults()
         loadFavorites()
-    }
-
-    // Standard Login
-    fun authenticateAdmin(user: String, pass: String): Boolean {
-        return if (user.trim() == "WAM2026" && pass.trim() == "maher736462") {
-            isAdminAuthenticated.value = true
-            true
-        } else {
-            false
-        }
-    }
-
-    // Backdoor secret login (triggered by clicking app logo/icon 5 times)
-    fun authenticateBackdoor(code: String): Boolean {
-        return if (code.trim() == "maher--736462") {
-            isAdminAuthenticated.value = true
-            true
-        } else {
-            false
-        }
-    }
-
-    fun logOutAdmin() {
-        isAdminAuthenticated.value = false
-        if (currentScreen.value == AppScreen.AdminDashboard) {
-            currentScreen.value = AppScreen.Home
-        }
     }
 
     // Gemini Chat Response Call

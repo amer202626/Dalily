@@ -23,19 +23,61 @@ class MainActivity : ComponentActivity() {
         setContent {
             val welcomeConfig by viewModel.welcomeConfig.collectAsState()
             
-            // Generate the six database-synchronized custom Material 3 themes
+            val fontColorVal = when (welcomeConfig.fontColor) {
+                "light_gold" -> Color(0xFFECC94B)
+                "vibrant_silver" -> Color(0xFFCBD5E1)
+                else -> Color.White
+            }
+            
+            // Generate the synchronized custom Material 3 themes
             val colorScheme = when (welcomeConfig.globalTheme) {
+                "cosmic_slate" -> darkColorScheme(
+                    primary = Color(0xFFCBD5E1),
+                    onPrimary = Color.Black,
+                    secondary = Color(0xFF64748B),
+                    onSecondary = Color.White,
+                    background = Color(0xFF0F172A),
+                    onBackground = fontColorVal,
+                    surface = Color(0xFF1E293B),
+                    onSurface = fontColorVal,
+                    surfaceVariant = Color(0xFF334155),
+                    onSurfaceVariant = fontColorVal.copy(alpha = 0.8f)
+                )
+                "charcoal_gold" -> darkColorScheme(
+                    primary = Color(0xFFECC94B),
+                    onPrimary = Color.Black,
+                    secondary = Color(0xFFD69E2E),
+                    onSecondary = Color.White,
+                    background = Color(0xFF111111),
+                    onBackground = fontColorVal,
+                    surface = Color(0xFF1A1A1A),
+                    onSurface = fontColorVal,
+                    surfaceVariant = Color(0xFF2D2D2D),
+                    onSurfaceVariant = fontColorVal.copy(alpha = 0.8f)
+                )
+                "royal_emerald" -> darkColorScheme(
+                    primary = Color(0xFF10B981),
+                    onPrimary = Color.Black,
+                    secondary = Color(0xFF047857),
+                    onSecondary = Color.White,
+                    background = Color(0xFF022C22),
+                    onBackground = fontColorVal,
+                    surface = Color(0xFF064E3B),
+                    onSurface = fontColorVal,
+                    surfaceVariant = Color(0xFF0F766E),
+                    onSurfaceVariant = fontColorVal.copy(alpha = 0.8f)
+                )
                 "royal_indigo" -> darkColorScheme(
                     primary = Color(0xFF8F94FB),
                     onPrimary = Color.White,
                     secondary = Color(0xFF4D54C8),
                     onSecondary = Color.White,
                     background = Color(0xFF0C0A1B),
-                    onBackground = Color(0xFFE5E2FF),
+                    onBackground = fontColorVal,
                     surface = Color(0xFF15122B),
-                    onSurface = Color(0xFFE5E2FF),
+                    onSurface = fontColorVal,
                     surfaceVariant = Color(0xFF23203C),
-                    onSurfaceVariant = Color(0xFFCCC5FF)
+                    onSurfaceVariant = fontColorVal.copy(alpha = 0.8f)
                 )
                 "emerald_green" -> darkColorScheme(
                     primary = Color(0xFF00FF88),
@@ -43,11 +85,11 @@ class MainActivity : ComponentActivity() {
                     secondary = Color(0xFF00B359),
                     onSecondary = Color.White,
                     background = Color(0xFF060D0A),
-                    onBackground = Color(0xFFE2F9EF),
+                    onBackground = fontColorVal,
                     surface = Color(0xFF0E1A14),
-                    onSurface = Color(0xFFE2F9EF),
+                    onSurface = fontColorVal,
                     surfaceVariant = Color(0xFF182B21),
-                    onSurfaceVariant = Color(0xFFBFEFDB)
+                    onSurfaceVariant = fontColorVal.copy(alpha = 0.8f)
                 )
                 "slate_silver" -> darkColorScheme(
                     primary = Color(0xFFDCDFE4),
@@ -55,11 +97,11 @@ class MainActivity : ComponentActivity() {
                     secondary = Color(0xFF8F97A3),
                     onSecondary = Color.White,
                     background = Color(0xFF161B21),
-                    onBackground = Color.White,
+                    onBackground = fontColorVal,
                     surface = Color(0xFF202630),
-                    onSurface = Color.White,
+                    onSurface = fontColorVal,
                     surfaceVariant = Color(0xFF2D3542),
-                    onSurfaceVariant = Color(0xFFD0D7E0)
+                    onSurfaceVariant = fontColorVal.copy(alpha = 0.8f)
                 )
                 "ocean_teal" -> darkColorScheme(
                     primary = Color(0xFF00F5D4),
@@ -67,11 +109,11 @@ class MainActivity : ComponentActivity() {
                     secondary = Color(0xFF00BFA5),
                     onSecondary = Color.White,
                     background = Color(0xFF001518),
-                    onBackground = Color(0xFFE0FCFA),
+                    onBackground = fontColorVal,
                     surface = Color(0xFF02252A),
-                    onSurface = Color(0xFFE0FCFA),
+                    onSurface = fontColorVal,
                     surfaceVariant = Color(0xFF04373F),
-                    onSurfaceVariant = Color(0xFFBFFBF5)
+                    onSurfaceVariant = fontColorVal.copy(alpha = 0.8f)
                 )
                 "beige_cream" -> lightColorScheme(
                     primary = Color(0xFF795548),
@@ -91,11 +133,11 @@ class MainActivity : ComponentActivity() {
                     secondary = Color(0xFFB30710),
                     onSecondary = Color.White,
                     background = Color(0xFF0F0F0F),
-                    onBackground = Color.White,
+                    onBackground = fontColorVal,
                     surface = Color(0xFF161616),
-                    onSurface = Color.White,
+                    onSurface = fontColorVal,
                     surfaceVariant = Color(0xFF2C2C2C),
-                    onSurfaceVariant = Color(0xFFDDDDDD)
+                    onSurfaceVariant = fontColorVal.copy(alpha = 0.8f)
                 )
             }
 
