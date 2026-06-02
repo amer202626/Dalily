@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
         
         // Instantiate the ViewModel
         val viewModel: AppViewModel by viewModels {
-            AppViewModelFactory(repository)
+            AppViewModelFactory(application, repository)
         }
         
         setContent {
