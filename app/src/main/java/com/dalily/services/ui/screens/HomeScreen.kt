@@ -1,14 +1,14 @@
 package com.dalily.services.ui.screens
 
-import android.content.Context
-import android.content.Intent
-import android.speech.RecognizerIntent
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -17,774 +17,372 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import com.dalily.services.data.BannerAd
+import com.dalily.services.UserRole
+import com.dalily.services.data.CustomCategory
 import com.dalily.services.data.FirebaseSimulator
 import com.dalily.services.data.ServiceProvider
+import com.dalily.services.data.ServiceRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.*
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
-    onNavigateToProvider: (String) -> Unit,
-    onNavigateToAdmin: () -> Unit,
-    onNavigateToChatsList: () -> Unit,
-    onNavigateToFavorites: () -> Unit,
-    isGuest: Boolean,
-    onLoginClick: () -> Unit
+    navController: NavController,
+    currentRole: UserRole,
+    onLogout: () -> Unit,
+    onRoleChanged: (UserRole, String?) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    
+    // Database states
+    val dbState by FirebaseSimulator.dbState.collectAsState()
+    val isSyncing by FirebaseSimulator.syncingState.collectAsState()
 
-    // Database state subscriptions
-    val providers by FirebaseSimulator.providers.collectAsState()
-    val banners by FirebaseSimulator.banners.collectAsState()
-    val systemSettings by FirebaseSimulator.systemSettings.collectAsState()
-    val blockedProviders by FirebaseSimulator.blockedProviders.collectAsState()
-    val blockedUsers by FirebaseSimulator.blockedUsers.collectAsState()
-
-    // UI Search state filters
+    // UI Interactive States
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
-    var selectedTag by remember { mutableStateOf<String?>(null) }
-    var radiusFilterKm by remember { mutableStateOf<Int?>(null) } // null means all
-    var minRatingFilter by remember { mutableStateOf(0.0f) }
+    
+    // Backdoor (Owner click listener)
+    var backdoorClicks by remember { mutableStateOf(0) }
+    var showBackdoorDialog by remember { mutableStateOf(false) }
+    var backdoorPasswordInput by remember { mutableStateOf("") }
 
-    // Loading & infinite scroll simulations
-    var isFilteringLoading by remember { mutableStateOf(false) }
-    var visibleItemCount by remember { mutableStateOf(4) }
-    val isDarkTheme = isSystemInDarkTheme()
+    // Admin login dialog state
+    var showAdminLoginDialog by remember { mutableStateOf(false) }
+    var adminUsernameInput by remember { mutableStateOf("") }
+    var adminPasswordInput by remember { mutableStateOf("") }
 
-    // Tracking section visits for Recommendation algorithm
-    val sectionClicks = remember { mutableStateMapOf<String, Int>() }
-    var recommendedCategory by remember { mutableStateOf<String?>(null) }
+    // Create service request dialog (إضافة خدمتي)
+    var showAddServiceDialog by remember { mutableStateOf(false) }
+    var newServiceName by remember { mutableStateOf("") }
+    var newServiceCategory by remember { mutableStateOf("") }
+    var newServicePhone by remember { mutableStateOf("") }
+    var newServiceWhatsapp by remember { mutableStateOf("") }
+    var newServiceDesc by remember { mutableStateOf("") }
 
-    // Guest login prompt popup dialog
-    var showGuestBlockDialog by remember { mutableStateOf(false) }
+    // Category modify state
+    var showAddCategoryDialog by remember { mutableStateOf(false) }
+    var showEditCategoryDialog by remember { mutableStateOf<CustomCategory?>(null) }
+    var categoryArInput by remember { mutableStateOf("") }
+    var categoryEnInput by remember { mutableStateOf("") }
+    var categoryColorInput by remember { mutableStateOf("#3B82F6") }
 
-    // First time Tour states
-    var tourStep by remember { mutableStateOf(if (systemSettings.isTourEnabled) 1 else 0) }
-
-    // Location Simulation Sana'a center
-    val myLat = 15.3533
-    val myLng = 44.2078
-
-    // Voice recognition launcher
-    val speechLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
-        onResult = { result ->
-            val data = result.data
-            val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            if (!results.isNullOrEmpty()) {
-                val voiceText = results[0]
-                searchQuery = voiceText
-                Toast.makeText(context, "البحث عن: $voiceText", Toast.LENGTH_SHORT).show()
+    // Sliding banners automatic transition
+    var activeBannerIndex by remember { mutableStateOf(0) }
+    LaunchedEffect(dbState.banners) {
+        if (dbState.banners.isNotEmpty()) {
+            while (true) {
+                delay(4000)
+                activeBannerIndex = (activeBannerIndex + 1) % dbState.banners.size
             }
         }
-    )
+    }
 
-    fun startVoiceSearch() {
-        try {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-YE")
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "تحدث باسم الخدمة أو الكلمة المفتاحية...")
-            }
-            speechLauncher.launch(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "البحث الصوتي غير متاح حالياً", Toast.LENGTH_SHORT).show()
+    // Reset backdoor clicks after some timeout inactivity
+    LaunchedEffect(backdoorClicks) {
+        if (backdoorClicks > 0) {
+            delay(3000)
+            backdoorClicks = 0
         }
-    }
-
-    // Dynamic distance calculation helper (Haversine formula in Km)
-    fun calculateDistanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val r = 6371.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = sin(dLat / 2).pow(2.0) +
-                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-                sin(dLon / 2).pow(2.0)
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        return r * c
-    }
-
-    // Filtered providers mapping with blocklists and filters applied
-    val allowedProviders = remember(providers, blockedProviders, searchQuery, selectedCategory, selectedTag, radiusFilterKm, minRatingFilter) {
-        providers.filter { p ->
-            !blockedProviders.contains(p.id) &&
-            (selectedCategory == null || p.category == selectedCategory) &&
-            (selectedTag == null || p.tags.contains(selectedTag)) &&
-            (p.rating >= minRatingFilter) &&
-            (searchQuery.isEmpty() || p.name.contains(searchQuery, ignoreCase = true) || p.description.contains(searchQuery, ignoreCase = true) || p.tags.any { t -> t.contains(searchQuery, ignoreCase = true) }) &&
-            (radiusFilterKm == null || calculateDistanceKm(myLat, myLng, p.latitude, p.longitude) <= radiusFilterKm!!)
-        }
-    }
-
-    // Recommendation logic update: find category user clicked most
-    LaunchedEffect(sectionClicks.keys.size) {
-        val maxCat = sectionClicks.maxByOrNull { it.value }
-        if (maxCat != null && maxCat.value > 0) {
-            recommendedCategory = maxCat.key
-        }
-    }
-
-    // Simulated skeleton trigger upon filter changes
-    LaunchedEffect(selectedCategory, selectedTag, radiusFilterKm, searchQuery) {
-        isFilteringLoading = true
-        delay(600) // 600ms responsive skeleton layout delay
-        isFilteringLoading = false
-    }
-
-    // Theme Background Gradient
-    val backgroundBrush = if (isDarkTheme) {
-        Brush.verticalGradient(listOf(Color(0xFF090D16), Color(0xFF131A2A)))
-    } else {
-        Brush.verticalGradient(listOf(Color(0xFFF1F5F9), Color(0xFFE2E8F0)))
     }
 
     Scaffold(
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            modifier = Modifier.size(32.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(6.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "دليل الخدمات الأول",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    // Administrative action & guest buttons
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = {
-                                sectionClicks["الدردشات"] = (sectionClicks["الدردشات"] ?: 0) + 1
-                                if (isGuest) {
-                                    showGuestBlockDialog = true
-                                } else {
-                                    onNavigateToChatsList()
+            SmallTopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .clickable {
+                                backdoorClicks++
+                                if (backdoorClicks >= 5) {
+                                    backdoorClicks = 0
+                                    showBackdoorDialog = true
                                 }
-                            },
-                            modifier = Modifier.testTag("chats_nav_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Chat,
-                                contentDescription = "قناة الرسائل المعلقة",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onNavigateToFavorites,
-                            modifier = Modifier.testTag("favorites_nav_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FavoriteBorder,
-                                contentDescription = "المفضلة",
-                                tint = Color.Red
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onNavigateToAdmin,
-                            modifier = Modifier.testTag("admin_panel_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AdminPanelSettings,
-                                contentDescription = "لوحة تحكم المشرفين",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        if (isGuest) {
-                            Button(
-                                onClick = onLoginClick,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .padding(start = 4.dp)
-                                    .testTag("home_login_button")
-                            ) {
-                                Text("تسجيل الدخول", fontSize = 11.sp)
                             }
-                        }
-                    }
-                }
-            }
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(backgroundBrush)
-        ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // 1. Welcome Greetings Card with dynamic details
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            .testTag("app_logo_clickable")
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Column {
-                                val greetingName = if (isGuest) "زائرنا الكريم" else FirebaseSimulator.currentUserName
-                                Text(
-                                    text = "مرحباً بك، $greetingName 👋",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 20.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = if (isGuest) "سجل الآن لتتمكن من حجز المواعيد والدردشة مع الفنيين" else "ابحث عن أفضل مقدمي الخدمات الفنية والرعاية في اليمن",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                                    lineHeight = 16.sp,
-                                    modifier = Modifier.padding(top = 4.dp)
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Build,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
-                    }
-                }
-
-                // 2. Banner Advertisements (Dynamic sliding control panels synced with Firebase)
-                if (banners.isNotEmpty()) {
-                    item {
                         Column {
                             Text(
-                                text = "خدمات مميزة وعروض رائعة",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                modifier = Modifier.padding(bottom = 6.dp, start = 4.dp)
-                            )
-                            // Interactive scrolling carousels
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                val activeBanners = banners.filter { b -> b.isActive }
-                                items(activeBanners) { banner ->
-                                    Box(
-                                        modifier = Modifier
-                                            .width(if (banner.size == "Large") 320.dp else if (banner.size == "Small") 200.dp else 260.dp)
-                                            .height(if (banner.size == "Large") 130.dp else if (banner.size == "Small") 90.dp else 110.dp)
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .clickable {
-                                                if (banner.redirectUrl.isNotEmpty()) {
-                                                    scope.launch {
-                                                        FirebaseSimulator.logAdminAction(context, "الضغط على لافتة إعلانية مبرمجة للتحويل إلى ${banner.redirectUrl}")
-                                                        onNavigateToProvider(banner.redirectUrl)
-                                                    }
-                                                }
-                                            }
-                                    ) {
-                                        AsyncImage(
-                                            model = banner.imageUrl,
-                                            contentDescription = "لافتة إعلانية",
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                        // Badge marker
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(6.dp)
-                                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                text = if (banner.isPinned) "مثبت 📌" else "إعلان",
-                                                fontSize = 9.sp,
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 3. Search parameters and Filters toolbar
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color.Transparent)
-                    ) {
-                        // Search bar input
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            TextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                placeholder = { Text("ابحث عن سباك، كهربائي، طبيب...", fontSize = 13.sp) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("search_input")
-                                    .clip(RoundedCornerShape(12.dp)),
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { searchQuery = "" }) {
-                                            Icon(Icons.Default.Close, contentDescription = "مسح")
-                                        }
-                                    }
-                                },
-                                singleLine = true,
-                                colors = TextFieldDefaults.colors(
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent
-                                )
-                            )
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            // Custom voice search button
-                            IconButton(
-                                onClick = { startVoiceSearch() },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                    .testTag("voice_search_button")
-                            ) {
-                                Icon(Icons.Default.Mic, contentDescription = "البحث بالصوت", tint = Color.White)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Advanced Geographic Radius Search ("Near Me" controller)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.MyLocation, contentDescription = "قرب الموقع الجغرافي", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("نطاق القرب الجغرافي (على الخريطة):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                            // Radius buttons
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf(5, 15, 30).filter { it <= systemSettings.maxRadiusSearchKm }.forEach { km ->
-                                    val isSelected = radiusFilterKm == km
-                                    Surface(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .clickable { radiusFilterKm = if (isSelected) null else km }
-                                            .testTag("radius_${km}km_button"),
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                                    ) {
-                                        Text(
-                                            text = "$km كم",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 4. Horizontal Categories card view (With Service provider quantity count)
-                item {
-                    Column {
-                        Text(
-                            text = "تصفح الأقسام والخدمات الرئيسية",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
-                        )
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(FirebaseSimulator.categories) { (catKey, catArName) ->
-                                val isSelected = selectedCategory == catArName
-                                val count = providers.filter { it.category == catArName && !blockedProviders.contains(it.id) }.size
-
-                                val categoryColor = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                }
-
-                                Surface(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            selectedCategory = if (isSelected) null else catArName
-                                            // Analytics section visit tracker
-                                            sectionClicks[catArName] = (sectionClicks[catArName] ?: 0) + 1
-                                        }
-                                        .testTag("category_card_$catKey"),
-                                    color = categoryColor,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-                                    shadowElevation = 1.dp
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = when (catKey) {
-                                                "S_PLUMBING" -> Icons.Default.WaterDrop
-                                                "S_ELECTRICITY" -> Icons.Default.FlashOn
-                                                "S_CLINIC" -> Icons.Default.LocalHospital
-                                                "S_AC" -> Icons.Default.AcUnit
-                                                "S_LOGISTICS" -> Icons.Default.LocalShipping
-                                                "S_TUTORING" -> Icons.Default.School
-                                                "S_MAINTENANCE" -> Icons.Default.Build
-                                                "S_CHEF" -> Icons.Default.Restaurant
-                                                else -> Icons.Default.Star
-                                            },
-                                            contentDescription = null,
-                                            tint = if (isSelected) Color.White else MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Column {
-                                            Text(
-                                                text = catArName,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = "$count خدمة متاحة",
-                                                fontSize = 8.sp,
-                                                color = if (isSelected) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 5. Smart RECOMMENDATION section ("Recommended for you" algorithms)
-                if (recommendedCategory != null) {
-                    val recommendedList = providers.filter {
-                        it.category == recommendedCategory &&
-                        !blockedProviders.contains(it.id) &&
-                        it.rating >= 4.0
-                    }.take(3)
-
-                    if (recommendedList.isNotEmpty()) {
-                        item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
-                                    .padding(12.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                                ) {
-                                    Icon(Icons.Default.Recommend, contentDescription = "ترشيحات ذكية لك", tint = MaterialTheme.colorScheme.primary)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "مقترح لك (حسب تصفحك لقسم $recommendedCategory):",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(recommendedList) { p ->
-                                        Card(
-                                            modifier = Modifier
-                                                .width(180.dp)
-                                                .clickable { onNavigateToProvider(p.id) },
-                                            shape = RoundedCornerShape(10.dp)
-                                        ) {
-                                            Column(modifier = Modifier.padding(8.dp)) {
-                                                AsyncImage(
-                                                    model = p.imageUrl,
-                                                    contentDescription = null,
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .height(70.dp)
-                                                        .clip(RoundedCornerShape(8.dp)),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                Text(p.name, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(10.dp))
-                                                    Text(" ${p.rating} (${p.reviewsCount} تقييم)", fontSize = 8.sp)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 6. Sub-Tags Filters list (fast selection badges like "أسعار اقتصادية", "خدمة سريعة")
-                item {
-                    val distinctTags = providers.flatMap { it.tags }.distinct()
-                    Text(
-                        text = "فلترة سريعة بالوسوم:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 6.dp, start = 4.dp)
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        distinctTags.forEach { tag ->
-                            val isSelected = selectedTag == tag
-                            Surface(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .clickable { selectedTag = if (isSelected) null else tag }
-                                    .testTag("tag_filter_$tag"),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.LocalActivity, contentDescription = null, size = 11.dp, tint = if (isSelected) Color.White else MaterialTheme.colorScheme.primary)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = tag,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 7. Dynamic list representation & Skeleton loader screen
-                item {
-                    Text(
-                        text = "مقدمو الخدمات المتاحة (${allowedProviders.size}):",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp, start = 4.dp)
-                    )
-                }
-
-                if (isFilteringLoading) {
-                    // Smart Skeleton screen animations
-                    items(3) {
-                        SkeletonPlaceholderItem()
-                    }
-                } else if (allowedProviders.isEmpty()) {
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(Icons.Default.SearchOff, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text("لم يتم العثور على أي نتائج فنية تتطابق مع معايير البحث والخيارات الفلترية المستخدمةا.", textAlign = TextAlign.Center, fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            }
-                        }
-                    }
-                } else {
-                    // Show lazy content with Infinite Scroll pagination representation
-                    val pagedItems = allowedProviders.take(visibleItemCount)
-                    items(pagedItems) { provider ->
-                        val distanceVal = calculateDistanceKm(myLat, myLng, provider.latitude, provider.longitude)
-                        ProviderItemCard(
-                            provider = provider,
-                            simulatedDistanceKm = distanceVal,
-                            onItemClick = {
-                                sectionClicks[provider.category] = (sectionClicks[provider.category] ?: 0) + 1
-                                onNavigateToProvider(provider.id)
-                            },
-                            dataSavingMode = systemSettings.dataSavingMode
-                        )
-                    }
-
-                    // Infinite Scroll button trigger
-                    if (visibleItemCount < allowedProviders.size) {
-                        item {
-                            Button(
-                                onClick = { 
-                                    scope.launch {
-                                        isFilteringLoading = true
-                                        delay(400)
-                                        visibleItemCount += 4
-                                        isFilteringLoading = false
-                                    }
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), contentColor = MaterialTheme.colorScheme.primary),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                                    .testTag("load_more_button")
-                            ) {
-                                Text("عرض المزيد من النتائج (التمرير اللانهائي) 🔄", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(48.dp))
-                }
-            }
-
-            // 8. INTERACTIVE TUTORIAL OVERLAY (First time walkthrough highlights)
-            if (tourStep in 1..4) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.75f))
-                        .clickable { /* Block underlying touches */ }
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(24.dp)
-                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
-                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(18.dp))
-                            .padding(20.dp)
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = when (tourStep) {
-                                    1 -> Icons.Default.Mic
-                                    2 -> Icons.Default.MyLocation
-                                    3 -> Icons.Default.Recommend
-                                    else -> Icons.Default.AdminPanelSettings
-                                },
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = when (tourStep) {
-                                    1 -> "ميزة البحث بالصوت 🎙️"
-                                    2 -> "تصفية النطاق الجغرافي 📍"
-                                    3 -> "الترشيحات الذكية 🔮"
-                                    else -> "لوحة تحكم المشرفين الكاملة 🔐"
-                                },
+                                text = "دليلي للخدمات",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = when (tourStep) {
-                                    1 -> "دليلنا يدعم البحث الصوتي السريع، يمكنك فقط الضغط على الأيقونة الميكروفونية وقول تخصص الخدمة بالعربية اليمني!"
-                                    2 -> "اختر النطاق القربي بالكم (٥ كم، ١٥ كم...)، ليقوم النظام بتحديث وعرض الفنيين الذين تنحصر مواقعهم بالقرب لبيتكم!"
-                                    3 -> "خوارزمية ذكية مدمجة تدرس تحركاتك ومعدل نقراتك بالأبواب والقطاعات، وتفرز لك توصيات مخصصة ترتقي ببحثك!"
-                                    else -> "للآدمن لوحة فخمة متكاملة يمكن من خلالها جدولة تنبيهات FCM، رصد بلاغات مستديمة، تصدير ملفات CSV وترتيب واجهات!"
-                                },
-                                overflow = TextOverflow.Clip,
-                                fontSize = 12.sp,
-                                lineHeight = 18.sp,
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                text = "الدليل الطبي والمهني الأول في اليمن",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(
-                                    onClick = { tourStep = 0 },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
-                                    shape = RoundedCornerShape(10.dp)
+                        }
+                    }
+                },
+                actions = {
+                    // Sync Indicator
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                val success = FirebaseSimulator.syncWithCloud(context)
+                                Toast.makeText(
+                                    context,
+                                    if (success) "تم تحديث البيانات من السحاب بنجاح 🗸" else "فشل الاتصال بالخادم السحابي! يعمل أوفلاين.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier.testTag("btn_sync")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "مزامنة السحاب",
+                            tint = if (isSyncing) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    }
+
+                    // Admin controls or entry button
+                    if (currentRole == UserRole.USER) {
+                        TextButton(
+                            onClick = { showAdminLoginDialog = true },
+                            modifier = Modifier.testTag("btn_open_login")
+                        ) {
+                            Text("دخول المشرف", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        val roleBadge = if (currentRole == UserRole.OWNER) "المالك 👑" else "مشرف 🛡️"
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(roleBadge, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 4.dp))
+                            IconButton(onClick = { onLogout() }) {
+                                Icon(Icons.Default.ExitToApp, contentDescription = "تسجيل خروج", tint = Color.Red)
+                            }
+                        }
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            NavigationBar(
+                modifier = Modifier.navigationBarsPadding()
+            ) {
+                NavigationBarItem(
+                    selected = true,
+                    onClick = { },
+                    icon = { Icon(Icons.Default.Home, contentDescription = "الرئيسية") },
+                    label = { Text("الرئيسية", fontSize = 11.sp) }
+                )
+                NavigationBarItem(
+                    selected = false,
+                    onClick = { navController.navigate("favorites") },
+                    icon = { Icon(Icons.Default.Favorite, contentDescription = "المفضلة") },
+                    label = { Text("المفضلة", fontSize = 11.sp) }
+                )
+                NavigationBarItem(
+                    selected = false,
+                    onClick = { navController.navigate("chat_list") },
+                    icon = { Icon(Icons.Default.MailOutline, contentDescription = "محادثاتي") },
+                    label = { Text("محادثاتي", fontSize = 11.sp) }
+                )
+                if (currentRole == UserRole.ADMIN || currentRole == UserRole.OWNER) {
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { navController.navigate("admin_dashboard") },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = "لوحة التحكم") },
+                        label = { Text("لوحة التحكم", fontSize = 11.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            unselectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier.testTag("btn_navigation_admin")
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            
+            // Search Bar
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("ابحث عن سباك، عيادة، مهندس...", fontSize = 13.sp) },
+                    trailingIcon = { Icon(Icons.Default.Search, contentDescription = "بحث") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("search_field"),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            // Banners Slider
+            if (dbState.banners.isNotEmpty()) {
+                item {
+                    val currentBanner = dbState.banners.getOrNull(activeBannerIndex) ?: dbState.banners.first()
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(130.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            AsyncImage(
+                                model = currentBanner.imageUrl,
+                                contentDescription = currentBanner.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(12.dp)
+                            ) {
+                                Text(
+                                    text = currentBanner.title,
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Right,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Categories Section Title with add button for Admins
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "تصفح أقسام الخدمات الموثقة",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    
+                    if (currentRole == UserRole.ADMIN || currentRole == UserRole.OWNER) {
+                        TextButton(
+                            onClick = {
+                                categoryArInput = ""
+                                categoryEnInput = ""
+                                categoryColorInput = "#3B82F6"
+                                showAddCategoryDialog = true
+                            },
+                            modifier = Modifier.testTag("btn_add_category")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "إضافة قسم", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("إضافة قسم", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // Categories list (Scrollable horizontally)
+            item {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedCategory == null,
+                            onClick = { selectedCategory = null },
+                            label = { Text("الكل", fontSize = 12.sp) }
+                        )
+                    }
+                    items(dbState.categories) { cat ->
+                        Box {
+                            FilterChip(
+                                selected = selectedCategory == cat.nameAr,
+                                onClick = { selectedCategory = cat.nameAr },
+                                label = { Text(cat.nameAr, fontSize = 12.sp) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Build,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                },
+                                modifier = Modifier.combinedClickable(
+                                    onClick = { selectedCategory = cat.nameAr },
+                                    onLongClick = {
+                                        if (currentRole == UserRole.ADMIN || currentRole == UserRole.OWNER) {
+                                            categoryArInput = cat.nameAr
+                                            categoryEnInput = cat.nameEn
+                                            categoryColorInput = cat.colorHex
+                                            showEditCategoryDialog = cat
+                                        }
+                                    }
+                                )
+                            )
+                            
+                            // Delete chip modifier for logged in admins
+                            if (currentRole == UserRole.ADMIN || currentRole == UserRole.OWNER) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 4.dp, y = (-4).dp)
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Red)
+                                        .clickable {
+                                            FirebaseSimulator.deleteCategory(context, cat.id)
+                                            if (selectedCategory == cat.nameAr) selectedCategory = null
+                                            Toast.makeText(context, "تم حذف القسم بنجاح 🗑️", Toast.LENGTH_SHORT).show()
+                                        },
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text("تخطي كل الرحلة", fontSize = 11.sp)
-                                }
-                                Button(
-                                    onClick = { tourStep += 1 },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Text(if (tourStep == 4) "بدء التصفح الفعلي 🚀" else "التالي", fontSize = 11.sp)
+                                    Icon(Icons.Default.Close, contentDescription = "حذف القسم", tint = Color.White, modifier = Modifier.size(10.dp))
                                 }
                             }
                         }
@@ -792,267 +390,591 @@ fun HomeScreen(
                 }
             }
 
-            // Guest popup blocks
-            if (showGuestBlockDialog) {
-                AlertDialog(
-                    onDismissRequest = { showGuestBlockDialog = false },
-                    title = { Text("تسجيل الحساب مطلوب 🔏", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-                    text = { Text("يسعدنا انضمامك! لكن ميزة التواصل المباشر مع مقدمي الخدمة وحجز مواعيد فنية تقتصر فقط على حسابات المستخدمين الموثقين. نأمل إنشاء حساب فوري.", fontSize = 12.sp, lineHeight = 18.sp) },
-                    confirmButton = {
+            // Submit my service card (إضافة خدمتي)
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("هل أنت مقدم خدمة مهنية أو طبية؟", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("أضف بياناتك واخدم الآلاف في دليلك الموثوق مجاناً.", fontSize = 10.sp, color = Color.Gray)
+                        }
                         Button(
                             onClick = {
-                                showGuestBlockDialog = false
-                                onLoginClick()
+                                newServiceName = ""
+                                newServiceCategory = dbState.categories.firstOrNull()?.nameAr ?: "سباكة وصيانة"
+                                newServicePhone = ""
+                                newServiceWhatsapp = ""
+                                newServiceDesc = ""
+                                showAddServiceDialog = true
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.testTag("btn_request_provider")
                         ) {
-                            Text("تسجيل دخول / إنشاء حساب")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showGuestBlockDialog = false }) {
-                            Text("إلغاء والتصفح كزائر")
+                            Text("إرسال خدمتي 🗸", fontSize = 11.sp)
                         }
                     }
+                }
+            }
+
+            // Providers Header
+            item {
+                Text(
+                    text = "مقدمي الخدمات المتوفرين حالياً",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
                 )
             }
-        }
-    }
-}
 
-// --- COMPOSE SUB-WIDGET COMPONENTS ---
+            // Filtered Service Providers List
+            val filteredProviders = dbState.providers.filter { provider ->
+                val matchesCategory = selectedCategory == null || provider.category == selectedCategory
+                val matchesSearch = provider.name.contains(searchQuery, ignoreCase = true) ||
+                        provider.description.contains(searchQuery, ignoreCase = true) ||
+                        provider.category.contains(searchQuery, ignoreCase = true) ||
+                        provider.tags.any { it.contains(searchQuery, ignoreCase = true) }
+                matchesCategory && matchesSearch
+            }
 
-@Composable
-fun ProviderItemCard(
-    provider: ServiceProvider,
-    simulatedDistanceKm: Double,
-    onItemClick: () -> Unit,
-    dataSavingMode: Boolean
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onItemClick() }
-            .testTag("provider_card_${provider.id}"),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(if (dataSavingMode) 100.dp else 140.dp)
-            ) {
-                // Compression or layout adjustment in Data Saving Mode
-                AsyncImage(
-                    model = provider.imageUrl,
-                    contentDescription = provider.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-
-                // Top badges strip
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Online/Offline credibility indicators
-                    Surface(
-                        color = if (provider.online) Color(0xFF10B981) else Color(0xFF6B7280),
-                        shape = RoundedCornerShape(6.dp)
+            if (filteredProviders.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text = if (provider.online) "نشط الآن 🟢" else "غير متصل 🔴",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        Icon(Icons.Default.Info, contentDescription = "لا يوجد بيانات", modifier = Modifier.size(48.dp), tint = Color.Gray.copy(alpha = 0.5f))
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("عذراً، لم نجد أي مقدم خدمات يطابق بحثك!", fontSize = 12.sp, color = Color.Gray)
                     }
-
-                    // Popularity point marker
-                    Surface(
-                        color = MaterialTheme.colorScheme.tertiary,
-                        shape = RoundedCornerShape(6.dp)
+                }
+            } else {
+                items(filteredProviders) { provider ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { navController.navigate("detail/${provider.id}") }
+                            .testTag("provider_card_${provider.id}"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Visibility, contentDescription = null, size = 8.dp, tint = Color.White)
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "${provider.views} نقطة شعبية",
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                            // Service Provider Photo
+                            Box {
+                                val placeholderImage = "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&q=80&w=300"
+                                AsyncImage(
+                                    model = if (provider.imageUrl.isEmpty()) placeholderImage else provider.imageUrl,
+                                    contentDescription = provider.name,
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                                if (provider.isVerified) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .offset(x = 4.dp, y = 4.dp)
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF22C55E)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Check, contentDescription = "موثوق", tint = Color.White, modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Provider Metadata
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = provider.category,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Star, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(12.dp))
+                                        Text(" ${provider.views} مشاهدة", fontSize = 9.sp, color = Color.Gray)
+                                    }
+                                }
+                                
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                Text(
+                                    text = provider.name,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                
+                                Spacer(modifier = Modifier.height(2.dp))
+                                
+                                Text(
+                                    text = provider.description,
+                                    fontSize = 11.sp,
+                                    color = Color.Gray,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Star, contentDescription = "تقييم", tint = Color(0xFFFFD700), modifier = Modifier.size(14.dp))
+                                    Text(
+                                        text = " ${provider.rating} (${provider.reviewsCount} تقييم)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Icon(Icons.Default.LocationOn, contentDescription = "العنوان", tint = Color.Gray, modifier = Modifier.size(12.dp))
+                                    Text(
+                                        text = provider.address,
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+    }
 
-                // If Verified, add beautiful banner badge overlay
-                if (provider.verified) {
-                    Box(
+    // Owner backdoor entry modal dialog (بوابة الدخول الخلفية)
+    if (showBackdoorDialog) {
+        Dialog(onDismissRequest = { showBackdoorDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("بوابة الدخول الخلفية لمالك الدليل 👑", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("الرجاء إدخال كلمة المرور السرية لمالك النظام برتبة أعلى:", fontSize = 12.sp, color = Color.Gray, textAlign = TextAlign.Center)
+
+                    OutlinedTextField(
+                        value = backdoorPasswordInput,
+                        onValueChange = { backdoorPasswordInput = it },
+                        placeholder = { Text("رمز الدخول الماستر") },
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                            .background(Color(0xFF0D9488), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .fillMaxWidth()
+                            .testTag("backdoor_pwd_input"),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Verified, contentDescription = "موثوق", size = 10.dp, tint = Color.White)
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("موثق بالدليل 🗸", fontSize = 8.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        Button(
+                            onClick = {
+                                if (backdoorPasswordInput == "maher--736462") {
+                                    onRoleChanged(UserRole.OWNER, "المالك الماستر")
+                                    showBackdoorDialog = false
+                                    backdoorPasswordInput = ""
+                                    Toast.makeText(context, "مرحباً بك يا مالك الدليل! تم الدخول برتبة مالك.", Toast.LENGTH_SHORT).show()
+                                    navController.navigate("admin_dashboard")
+                                } else {
+                                    Toast.makeText(context, "الرمز السري غير صحيح!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_backdoor_submit")
+                        ) {
+                            Text("دخول سريع")
+                        }
+                        OutlinedButton(
+                            onClick = { showBackdoorDialog = false },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("إلغاء")
                         }
                     }
                 }
             }
+        }
+    }
 
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+    // Admin/Supervisor Login dialog (خالية من البيانات الافتراضية تلبية للمتطلب)
+    if (showAdminLoginDialog) {
+        Dialog(onDismissRequest = { showAdminLoginDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = provider.name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
+                    Text("تسجيل دخول المشرفين المعتمدين 🛡️", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("الرجاء كتابة اسم المستخدم وكلمة السر الممنوحة لك:", fontSize = 11.sp, color = Color.Gray, textAlign = TextAlign.Center)
+
+                    OutlinedTextField(
+                        value = adminUsernameInput,
+                        onValueChange = { adminUsernameInput = it },
+                        label = { Text("اسم مستخدم المشرف") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("admin_username_input"),
+                        shape = RoundedCornerShape(8.dp)
                     )
-                    Surface(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                        shape = RoundedCornerShape(6.dp)
+
+                    OutlinedTextField(
+                        value = adminPasswordInput,
+                        onValueChange = { adminPasswordInput = it },
+                        label = { Text("رمز المرور") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("admin_password_input"),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = provider.category,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = provider.subcategory,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                    fontWeight = FontWeight.Medium
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = provider.description,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 15.sp
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = "${provider.rating} (${provider.reviewsCount} تقييم)",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    // Geographic Distance tags computed in real time
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(
-                            text = "يبعد حوالي ${String.format("%.1f", simulatedDistanceKm)} كم",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Button(
+                            onClick = {
+                                val match = dbState.admins.find {
+                                    it.username == adminUsernameInput && it.passwordHash == adminPasswordInput && it.isActive
+                                }
+                                if (match != null) {
+                                    onRoleChanged(UserRole.ADMIN, match.username)
+                                    showAdminLoginDialog = false
+                                    adminUsernameInput = ""
+                                    adminPasswordInput = ""
+                                    Toast.makeText(context, "مرحباً يا مشرف، تم تسجيل دخولك بنجاح!", Toast.LENGTH_SHORT).show()
+                                    navController.navigate("admin_dashboard")
+                                } else {
+                                    Toast.makeText(context, "بيانات المشرف المدخلة خاطئة أو قد تم تعطيل المشرف!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_admin_submit")
+                        ) {
+                            Text("دخول المشرف")
+                        }
+                        OutlinedButton(
+                            onClick = { showAdminLoginDialog = false },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("إلغاء")
+                        }
                     }
                 }
             }
         }
     }
-}
 
-@Composable
-fun SkeletonPlaceholderItem() {
-    val infiniteTransition = rememberInfiniteTransition()
-    val alphaAnim by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        )
-    )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alphaAnim))
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            // Simulated ImageView
-            Box(
+    // Submit provider application/request (إضافة خدمتي)
+    if (showAddServiceDialog) {
+        Dialog(onDismissRequest = { showAddServiceDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(90.dp)
-                    .background(Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-            )
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("تقديم طلب إدراج خدمة", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("سيقوم المشرف بمراجعة طلبك وإضافته للدليل في ثوانٍ", fontSize = 11.sp, color = Color.Gray, textAlign = TextAlign.Center)
 
-            Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = newServiceName,
+                        onValueChange = { newServiceName = it },
+                        label = { Text("اسم النشاط أو المهندس") },
+                        modifier = Modifier.fillMaxWidth().testTag("req_name_input"),
+                        shape = RoundedCornerShape(8.dp)
+                    )
 
-            // Simulated title field
-            Box(
-                modifier = Modifier
-                    .width(180.dp)
-                    .height(16.dp)
-                    .background(Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-            )
+                    // Simple Dropdown selection for category
+                    var showCatDropdown by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = newServiceCategory,
+                            onValueChange = { },
+                            readOnly = true,
+                            label = { Text("القسم الرئيسي") },
+                            trailingIcon = {
+                                IconButton(onClick = { showCatDropdown = true }) {
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        DropdownMenu(
+                            expanded = showCatDropdown,
+                            onDismissRequest = { showCatDropdown = false }
+                        ) {
+                            dbState.categories.forEach {
+                                DropdownMenuItem(
+                                    text = { Text(it.nameAr) },
+                                    onClick = {
+                                        newServiceCategory = it.nameAr
+                                        showCatDropdown = false
+                                    }
+                                )
+                            }
+                        }
+                    }
 
-            Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = newServicePhone,
+                        onValueChange = { newServicePhone = it },
+                        label = { Text("رقم الهاتف") },
+                        modifier = Modifier.fillMaxWidth().testTag("req_phone_input"),
+                        shape = RoundedCornerShape(8.dp)
+                    )
 
-            // Simulated description field
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(12.dp)
-                    .background(Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-            )
+                    OutlinedTextField(
+                        value = newServiceWhatsapp,
+                        onValueChange = { newServiceWhatsapp = it },
+                        label = { Text("رقم الواتساب (اختياري)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = newServiceDesc,
+                        onValueChange = { newServiceDesc = it },
+                        label = { Text("تفاصيل الخدمة والخبرات") },
+                        modifier = Modifier.fillMaxWidth().height(80.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (newServiceName.isEmpty() || newServicePhone.isEmpty()) {
+                                    Toast.makeText(context, "الرجاء تعبئة الحقول الإلزامية الاسم والهاتف!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val req = ServiceRequest(
+                                        id = "req_${System.currentTimeMillis()}",
+                                        providerName = newServiceName,
+                                        category = newServiceCategory,
+                                        phone = newServicePhone,
+                                        whatsapp = newServiceWhatsapp,
+                                        description = newServiceDesc,
+                                        status = "PENDING"
+                                    )
+                                    FirebaseSimulator.addServiceRequest(context, req)
+                                    Toast.makeText(context, "تم إرسال طلبك بنجاح! شكراً لتقديمك.", Toast.LENGTH_LONG).show()
+                                    showAddServiceDialog = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f).testTag("btn_req_submit")
+                        ) {
+                            Text("إرسال الطلب")
+                        }
+                        OutlinedButton(
+                            onClick = { showAddServiceDialog = false },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("رجوع")
+                        }
+                    }
+                }
+            }
         }
     }
-}
 
-// Icon helper wrapper
-@Composable
-fun Icon(imageVector: androidx.compose.ui.graphics.vector.ImageVector, contentDescription: String?, size: Dp, tint: Color) {
-    Icon(
-        imageVector = imageVector,
-        contentDescription = contentDescription,
-        tint = tint,
-        modifier = Modifier.size(size)
-    )
+    // Add Section Dialog
+    if (showAddCategoryDialog) {
+        Dialog(onDismissRequest = { showAddCategoryDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("إضافة قسم / بورتال جديد 🏷️", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+
+                    OutlinedTextField(
+                        value = categoryArInput,
+                        onValueChange = { categoryArInput = it },
+                        label = { Text("الاسم بالعربية") },
+                        modifier = Modifier.fillMaxWidth().testTag("cat_ar_input"),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = categoryEnInput,
+                        onValueChange = { categoryEnInput = it },
+                        label = { Text("الاسم بالإنجليزية") },
+                        modifier = Modifier.fillMaxWidth().testTag("cat_en_input"),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = categoryColorInput,
+                        onValueChange = { categoryColorInput = it },
+                        label = { Text("لون الواجهة (مثال: #3B82F6)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (categoryArInput.isEmpty()) {
+                                    Toast.makeText(context, "الاسم بالعربية مطلوب!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val catId = "cat_${System.currentTimeMillis()}"
+                                    val cat = CustomCategory(
+                                        id = catId,
+                                        nameAr = categoryArInput,
+                                        nameEn = categoryEnInput,
+                                        colorHex = categoryColorInput
+                                    )
+                                    FirebaseSimulator.addCategory(context, cat)
+                                    showAddCategoryDialog = false
+                                    Toast.makeText(context, "تم إضافة القسم الجديد بنجاح مالي!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f).testTag("btn_cat_add_submit")
+                        ) {
+                            Text("حفظ")
+                        }
+                        OutlinedButton(
+                            onClick = { showAddCategoryDialog = false },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("إلغاء")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Edit Section Dialog
+    if (showEditCategoryDialog != null) {
+        val cat = showEditCategoryDialog!!
+        Dialog(onDismissRequest = { showEditCategoryDialog = null }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("تعديل تفاصيل القسم 🏷️", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+
+                    OutlinedTextField(
+                        value = categoryArInput,
+                        onValueChange = { categoryArInput = it },
+                        label = { Text("الاسم بالعربية") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = categoryEnInput,
+                        onValueChange = { categoryEnInput = it },
+                        label = { Text("الاسم بالإنجليزية") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = categoryColorInput,
+                        onValueChange = { categoryColorInput = it },
+                        label = { Text("لون الواجهة والسمات") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (categoryArInput.isEmpty()) {
+                                    Toast.makeText(context, "الاسم بالعربية مطلوب!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val updatedCat = cat.copy(
+                                        nameAr = categoryArInput,
+                                        nameEn = categoryEnInput,
+                                        colorHex = categoryColorInput
+                                    )
+                                    FirebaseSimulator.updateCategory(context, updatedCat)
+                                    showEditCategoryDialog = null
+                                    Toast.makeText(context, "تم تعديل القسم بنجاح!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("تحديث")
+                        }
+                        OutlinedButton(
+                            onClick = { showEditCategoryDialog = null },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("رجوع")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

@@ -1,27 +1,24 @@
 package com.dalily.services.ui.screens
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.*
-import androidx.compose.foundation.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Chat
-import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -31,868 +28,623 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import com.dalily.services.data.Comment
+import com.dalily.services.UserRole
+import com.dalily.services.data.ChatMessage
 import com.dalily.services.data.FirebaseSimulator
+import com.dalily.services.data.Report
 import com.dalily.services.data.ServiceProvider
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DetailScreen(
+    navController: NavController,
     providerId: String,
-    onBackClick: () -> Unit,
-    isGuest: Boolean,
-    onLoginClick: () -> Unit
+    currentRole: UserRole
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val dbState by FirebaseSimulator.dbState.collectAsState()
+    
+    // Find matching provider
+    val provider = dbState.providers.find { it.id == providerId }
 
-    val providers by FirebaseSimulator.providers.collectAsState()
-    val provider = remember(providers, providerId) { providers.find { it.id == providerId } }
-    val systemSettings by FirebaseSimulator.systemSettings.collectAsState()
-
-    // Screen states
-    var isReadingMode by remember { mutableStateOf(false) }
-    var selectedImageIndex by remember { mutableStateOf(0) }
-    var selectedBookingSlot by remember { mutableStateOf<String?>(null) }
-    var inquiryText by remember { mutableStateOf("") }
-    var selectedBookingDate by remember { mutableStateOf("اليوم") }
-
-    // Comment states
-    var reviewerName by remember { mutableStateOf("") }
-    var ratingValue by remember { mutableStateOf(5) }
-    var commentText by remember { mutableStateOf("") }
-
-    // Report states
-    var showReportDialog by remember { mutableStateOf(false) }
-    var reportReason by remember { mutableStateOf("") }
-
-    // Simulated Chat states
-    var userChatMessageText by remember { mutableStateOf("") }
-    val chats by FirebaseSimulator.chats.collectAsState()
-    val activeChat = remember(chats, providerId) {
-        chats.find { it.userId == FirebaseSimulator.currentUserId && it.providerId == providerId }
-    }
-
-    // Guest control popup
-    var showGuestDialog by remember { mutableStateOf(false) }
-
-    // Offline synchronization representation state
-    var lastSyncTime by remember { mutableStateOf("الآن") }
-    var isRecordingSync by remember { mutableStateOf(false) }
-
-    // Increment popularity point views on screen opening
+    // Increment view count on open
     LaunchedEffect(providerId) {
-        FirebaseSimulator.incrementViews(context, providerId)
-        // Refresh last sync state
-        isRecordingSync = true
-        delay(400)
-        isRecordingSync = false
+        if (provider != null) {
+            FirebaseSimulator.updateServiceProvider(
+                context,
+                provider.copy(views = provider.views + 1)
+            )
+        }
     }
 
     if (provider == null) {
-        Scaffold { padding ->
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("عذراً، مقدم الخدمة المطلوب غير موجود أو تم حظره مؤخراً.", fontWeight = FontWeight.Bold)
+        Scaffold { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("عذراً، لم يتم العثور على مقدم الخدمة!", fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(onClick = { navController.popBackStack() }) {
+                        Text("العودة للرئيسية")
+                    }
+                }
             }
         }
         return
     }
 
-    // Interactive communications launchers (Native intents)
-    fun launchPhoneCall(num: String) {
-        try {
-            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$num"))
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "فشل في تشغيل مدخل الاتصال الهاتفي", Toast.LENGTH_SHORT).show()
-        }
-    }
+    // Comment and report states
+    var commentText by remember { mutableStateOf("") }
+    var reviewerName by remember { mutableStateOf("") }
+    var showReportDialog by remember { mutableStateOf(false) }
+    var reportReason by remember { mutableStateOf("") }
+    var reportDetails by remember { mutableStateOf("") }
 
-    fun launchWhatsApp(num: String, text: String) {
-        try {
-            val url = "https://api.whatsapp.com/send?phone=$num&text=${Uri.encode(text)}"
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "الواتساب غير مثبت على هذا الهاتف", Toast.LENGTH_SHORT).show()
-        }
-    }
+    // Admin direct editing states
+    var showEditProviderDialog by remember { mutableStateOf(false) }
+    var editName by remember { mutableStateOf(provider.name) }
+    var editCategory by remember { mutableStateOf(provider.category) }
+    var editPhone by remember { mutableStateOf(provider.phone) }
+    var editWhatsapp by remember { mutableStateOf(provider.whatsapp) }
+    var editDesc by remember { mutableStateOf(provider.description) }
+    var editImage by remember { mutableStateOf(provider.imageUrl) }
+    var editRating by remember { mutableStateOf(provider.rating.toString()) }
+    var editViews by remember { mutableStateOf(provider.views.toString()) }
+    var editVerified by remember { mutableStateOf(provider.isVerified) }
+    var editAddress by remember { mutableStateOf(provider.address) }
 
-    fun handleSocialShare() {
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "مشاركة مقدم الخدمة: ${provider.name}")
-            val promoText = "ابحث وصِل للفنيين المتميزين مع دليل الخدمات اليمني! شاهد ملف الفني (${provider.name}) المميز في تخصص ${provider.category} عبر الرابط:\n${systemSettings.defaultShareLink}?id=${provider.id}"
-            putExtra(Intent.EXTRA_TEXT, promoText)
-        }
-        context.startActivity(Intent.createChooser(shareIntent, "مشاركة عبر:"))
-    }
+    // Messaging states
+    var chatMessageText by remember { mutableStateOf("") }
+    val chatsList = dbState.chats.filter { it.providerId == providerId }
 
     Scaffold(
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBackClick, modifier = Modifier.testTag("detail_back_button")) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "رجوع", tint = MaterialTheme.colorScheme.primary)
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (isReadingMode) "وضع القراءة المريح 📖" else provider.name,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+            SmallTopAppBar(
+                title = { Text(provider.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "رجوع")
                     }
-
-                    // Reading Mode & Options Controllers
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Offline Sync indicator button
+                },
+                actions = {
+                    // Edit and delete icons if role is ADMIN or OWNER (اعطاء صلاحيه للتعديل الكامل)
+                    if (currentRole == UserRole.ADMIN || currentRole == UserRole.OWNER) {
                         IconButton(
                             onClick = {
-                                scope.launch {
-                                    isRecordingSync = true
-                                    delay(800)
-                                    val timeNow = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
-                                    lastSyncTime = timeNow
-                                    isRecordingSync = false
-                                    Toast.makeText(context, "تم تحديث ومزامنة البيانات مع خوادم الدليل", Toast.LENGTH_SHORT).show()
-                                }
+                                editName = provider.name
+                                editCategory = provider.category
+                                editPhone = provider.phone
+                                editWhatsapp = provider.whatsapp
+                                editDesc = provider.description
+                                editImage = provider.imageUrl
+                                editRating = provider.rating.toString()
+                                editViews = provider.views.toString()
+                                editVerified = provider.isVerified
+                                editAddress = provider.address
+                                showEditProviderDialog = true
                             },
-                            modifier = Modifier.testTag("sync_data_button")
+                            modifier = Modifier.testTag("btn_edit_provider")
                         ) {
-                            if (isRecordingSync) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.CloudQueue, contentDescription = "تحديث المزامنة الاوفلاين", tint = Color.Gray)
-                            }
+                            Icon(Icons.Default.Edit, contentDescription = "تعديل مقدم الخدمة", tint = MaterialTheme.colorScheme.primary)
                         }
-
-                        // Reading mode toggle
+                        
                         IconButton(
-                            onClick = { isReadingMode = !isReadingMode },
-                            modifier = Modifier.testTag("reading_mode_button")
+                            onClick = {
+                                FirebaseSimulator.deleteServiceProvider(context, provider.id)
+                                Toast.makeText(context, "تم حذف مقدم الخدمة بنجاح 🗑️", Toast.LENGTH_SHORT).show()
+                                navController.popBackStack()
+                            },
+                            modifier = Modifier.testTag("btn_delete_provider")
                         ) {
-                            Icon(
-                                imageVector = if (isReadingMode) Icons.Default.MenuBook else Icons.Default.Book,
-                                contentDescription = "تبديل القراءة",
-                                tint = if (isReadingMode) MaterialTheme.colorScheme.primary else Color.Gray
-                            )
-                        }
-
-                        // Social Media Share Action Button
-                        IconButton(
-                            onClick = { handleSocialShare() },
-                            modifier = Modifier.testTag("share_provider_button")
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = "مشاركة الفني", tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Default.Delete, contentDescription = "حذف مقدم الخدمة", tint = Color.Red)
                         }
                     }
                 }
-
-                // Subtitle bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "مزامنة الاستعراض الأوفلاين: $lastSyncTime",
-                        fontSize = 9.sp,
-                        color = Color.Gray
-                    )
-                    if (provider.verified) {
-                        Surface(
-                            color = Color(0xFF0D9488),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                "علامة توثيق 🗸",
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-            }
+            )
         }
-    ) { padding ->
+    ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // IMAGE SLIDER / HEADER (Suppressed in Reading Mode)
-            if (!isReadingMode) {
-                item {
-                    val imagesList = remember(provider) { listOf(provider.imageUrl) + provider.secondaryImages }
+            
+            // Core Identity header
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
                     Column {
+                        val placeholderImage = "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&q=80&w=600"
+                        AsyncImage(
+                            model = if (provider.imageUrl.isEmpty()) placeholderImage else provider.imageUrl,
+                            contentDescription = provider.name,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                        
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = provider.category,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(16.dp))
+                                    Text(" ${provider.rating} (${provider.reviewsCount} تقييم)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = provider.name,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (provider.isVerified) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "موثوق", tint = Color(0xFF22C55E), modifier = Modifier.size(24.dp))
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Text(provider.description, fontSize = 13.sp, color = Color.Gray, lineHeight = 20.sp)
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LocationOn, contentDescription = "موقع", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(provider.address, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Quick Contact Buttons
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${provider.phone}"))
+                            context.startActivity(intent)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("btn_call_provider"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Phone, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("اتصال فوري", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (provider.whatsapp.isNotEmpty()) {
+                        Button(
+                            onClick = {
+                                val url = "https://api.whatsapp.com/send?phone=${provider.whatsapp}"
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                context.startActivity(intent)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_whatsapp_provider"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("واتساب", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+
+            // Report button
+            item {
+                OutlinedButton(
+                    onClick = { showReportDialog = true },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("btn_report_provider"),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("أبلغ عن وجود مشكلة أو بيانات خاطئة", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Chat Box
+            item {
+                Text("المحادثة المباشرة الفورية مع المزود", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(170.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .height(120.dp)
+                                .background(MaterialTheme.colorScheme.background, RoundedCornerShape(6.dp))
                         ) {
-                            // Render active sliding image
-                            AsyncImage(
-                                model = imagesList[selectedImageIndex],
-                                contentDescription = "صورة الملف",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-
-                            // Overlay star Badge indicators
-                            Row(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(10.dp)
-                                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = "${provider.rating} (${provider.reviewsCount} تقييم)",
-                                    fontSize = 11.sp,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        // Thumbnail Selectors Row
-                        if (imagesList.size > 1) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(imagesList.size) { index ->
-                                    Box(
-                                        modifier = Modifier
-                                            .size(54.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .border(
-                                                width = if (selectedImageIndex == index) 2.dp else 1.dp,
-                                                color = if (selectedImageIndex == index) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
-                                                shape = RoundedCornerShape(8.dp)
-                                            )
-                                            .clickable { selectedImageIndex = index }
-                                    ) {
-                                        AsyncImage(
-                                            model = imagesList[index],
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    }
+                            if (chatsList.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("ابدأ المحادثة الآن واكتب استفسارك!", fontSize = 11.sp, color = Color.Gray)
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // CORE PROFILE METRICS & DETAILS Section
-            item {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = provider.name,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = if (provider.online) Icons.Default.CheckCircle else Icons.Default.Cancel,
-                                contentDescription = null,
-                                tint = if (provider.online) Color(0xFF10B981) else Color.Gray,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (provider.online) "متصل بالدليل" else "غير متصل حالياً",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (provider.online) Color(0xFF10B981) else Color.Gray
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text(
-                                text = provider.category,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text(
-                                text = "شعبية: ${provider.views} نقطة",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "تفاصيل وتخصص الخدمة:",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = provider.description,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "ساعات الدوام الفني للعمل: ${provider.workingHours}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            // DIRECT CONTACT BUTTONS STRIP
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
-                        .padding(12.dp)
-                ) {
-                    Text(
-                        "التواصل الفوري وحجز الاتصال:",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Launch Phone Call
-                        Button(
-                            onClick = { launchPhoneCall(provider.phone) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                                .testTag("btn_call_${provider.id}"),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.Call, contentDescription = null, size = 16.dp, tint = Color.White)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("اتصل هاتفي", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        // Launch WhatsApp directly
-                        if (provider.whatsapp.isNotEmpty()) {
-                            Button(
-                                onClick = { launchWhatsApp(provider.whatsapp, "مرحباً ${provider.name}، شاهدت ملفك في دليل الخدمات وأود الاستفسار عن:") },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .testTag("btn_wa_${provider.id}"),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Message, contentDescription = null, size = 16.dp, tint = Color.White)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("واتساب سريع", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // DYNAMIC CALENDAR BOOKING SYSTEM
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-                        .padding(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CalendarToday, contentDescription = null, tint = MaterialTheme.colorScheme.primary, size = 18.dp)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("حجز موعد عمل فني مسبق:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                        // Toggle dates
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            listOf("اليوم", "غداً", "السبت").forEach { d ->
-                                val active = selectedBookingDate == d
-                                Surface(
+                            } else {
+                                LazyColumn(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .clickable { selectedBookingDate = d },
-                                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                                        .fillMaxSize()
+                                        .padding(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Text(
-                                        text = d,
-                                        fontSize = 9.sp,
-                                        color = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Grid layout of available booking hours
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        provider.availableSlots.forEach { slot ->
-                            val isSelected = selectedBookingSlot == slot
-                            Surface(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { selectedBookingSlot = if (isSelected) null else slot }
-                                    .testTag("booking_slot_$slot"),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                            ) {
-                                Text(
-                                    text = slot,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // Booking Confirmation button
-                    if (selectedBookingSlot != null) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                if (isGuest) {
-                                    showGuestDialog = true
-                                } else {
-                                    scope.launch {
-                                        FirebaseSimulator.logAdminAction(context, "حجز موعد ($selectedBookingSlot) للفني ${provider.name} في يوم $selectedBookingDate")
-                                        Toast.makeText(context, "تم تسجيل حجز الموعد بنجاح! تم حفظ تذكير الموعد في Firestore وسيتم تنبيه الفني.", Toast.LENGTH_LONG).show()
-                                        selectedBookingSlot = null
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("confirm_booking_button"),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("تأكيد الموعد المحجوز ($selectedBookingSlot) في يوم $selectedBookingDate 📅", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            // INTERACTIVE REAL-TIME IN-APP CHAT (Suppressed when disabled by Admin)
-            if (!provider.isChatDisabled) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-                            .padding(14.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary, size = 18.dp)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("الدردشة الفورية والرسائل المباشرة:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-
-                        // Message boards display
-                        if (activeChat != null && activeChat.messages.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(130.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                activeChat.messages.forEach { msg ->
-                                    val isMe = msg.senderId == FirebaseSimulator.currentUserId
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
-                                    ) {
-                                        Surface(
-                                            color = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                                            contentColor = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Column(modifier = Modifier.padding(8.dp)) {
-                                                Text(msg.senderName, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                                Text(msg.text, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp))
+                                    items(chatsList) { msg ->
+                                        val alignment = if (msg.isFromUser) Alignment.CenterEnd else Alignment.CenterStart
+                                        val bubbleColor = if (msg.isFromUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
+                                        Box(modifier = Modifier.fillMaxWidth()) {
+                                            Surface(
+                                                color = bubbleColor,
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.align(alignment)
+                                            ) {
+                                                Text(msg.text, fontSize = 11.sp, modifier = Modifier.padding(6.dp))
                                             }
                                         }
                                     }
                                 }
                             }
-                        } else {
-                            Text(
-                                "لا توجد رسائل بينك وبين هذا الفني لغاية الآن. أرسل استفسارك وسيقوم بالرد الفوري فور نشاطه.",
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                                color = Color.Gray
-                            )
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Message typewriter controls
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextField(
-                                value = userChatMessageText,
-                                onValueChange = { userChatMessageText = it },
-                                placeholder = { Text("اكتب رسالة سريعة...", fontSize = 12.sp) },
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = chatMessageText,
+                                onValueChange = { chatMessageText = it },
+                                placeholder = { Text("اكتب رسالتك لطلب الخدمة...", fontSize = 12.sp) },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(8.dp)),
-                                singleLine = true,
-                                colors = TextFieldDefaults.colors(
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent
-                                )
+                                    .height(50.dp)
+                                    .testTag("chat_input"),
+                                shape = RoundedCornerShape(8.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            IconButton(
+                            Button(
                                 onClick = {
-                                    if (isGuest) {
-                                        showGuestDialog = true
-                                        return@IconButton
-                                    }
-                                    if (userChatMessageText.trim().isNotEmpty()) {
-                                        FirebaseSimulator.createChatAndSendMessage(context, providerId, userChatMessageText.trim())
-                                        val mTemp = userChatMessageText
-                                        userChatMessageText = ""
-                                        // Auto-reply generator simulator script after 1.5s
-                                        scope.launch {
-                                            delay(1500)
-                                            val simulatedReply = "مرحباً بك! تلقيت استفسارك وسأتصل بك قريباً لمعرفة كافة التفاصيل المطلوبة والباشرة بالعمل."
-                                            activeChat?.let {
-                                                FirebaseSimulator.sendProviderReply(context, it.id, simulatedReply, providerId, provider.name)
-                                            }
-                                        }
+                                    if (chatMessageText.isNotEmpty()) {
+                                        val msg = ChatMessage(
+                                            id = "msg_${System.currentTimeMillis()}",
+                                            providerId = providerId,
+                                            senderName = "أنا",
+                                            text = chatMessageText,
+                                            isFromUser = true
+                                        )
+                                        FirebaseSimulator.addChatMessage(context, msg)
+                                        chatMessageText = ""
+                                        Toast.makeText(context, "تم إرسال رسالتك لمزود الخدمة!", Toast.LENGTH_SHORT).show()
                                     }
                                 },
-                                modifier = Modifier
-                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-                                    .testTag("send_chat_message_button")
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(50.dp).testTag("btn_send_chat")
                             ) {
-                                Icon(Icons.Default.Send, contentDescription = "أرسل", tint = Color.White)
+                                Icon(Icons.Default.Send, contentDescription = "إرسال")
                             }
-                        }
-                    }
-                }
-            } else {
-                item {
-                    // Chat is disabled globally or for specific provider
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f))
-                    ) {
-                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("عذراً! تم تعطيل نظام المحادثات الفورية لهذا الفني حالياً بواسطة المشرف الرئيسي.", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
 
-            // REPORT PROVIDER BUTTON & COMPONENT
+            // Reviews and Comments
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(
-                        onClick = { showReportDialog = true },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.testTag("report_provider_button")
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ReportProblem, contentDescription = null, size = 14.dp, tint = MaterialTheme.colorScheme.error)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("الإبلاغ عن إساءة أو محتوى غير لائق لمقدم الخدمه", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
+                Text("المراجعات وآراء العملاء", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
 
-            // REVIEWS & COMMENTS SECTION FEED
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-                        .padding(14.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Comment, contentDescription = null, tint = MaterialTheme.colorScheme.primary, size = 18.dp)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("التقييمات والتعليقات (${provider.comments.size}):", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Comment lists scrolling
-                    if (provider.comments.isNotEmpty()) {
-                        val reviewLogs = provider.comments.sortedByDescending { it.pinned }
-                        reviewLogs.forEach { log ->
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        if (log.pinned) MaterialTheme.colorScheme.primary.copy(alpha = 0.05f) 
-                                        else Color.Transparent, 
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(log.author, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        if (log.pinned) {
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(4.dp)) {
-                                                Text("مثبت من الإدارة 📌", fontSize = 7.sp, color = Color.White, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
-                                            }
-                                        }
-                                    }
-                                    Row {
-                                        repeat(log.rating) {
-                                            Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(10.dp))
-                                        }
-                                    }
-                                }
-                                Text(
-                                    log.text,
-                                    fontSize = 11.sp,
-                                    lineHeight = 15.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                                Divider(modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                            }
-                        }
-                    } else {
-                        Text("لا توجد مراجعات مكتوبة حالياً. كن أول من يضيف تقييماً لمقدم الخدمة!", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 10.dp))
-                    }
-
-                    // Write comments form
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("إضافة مراجعة فنية:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextField(
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("أضف رأيك كعميل لهذا النشاط", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        
+                        OutlinedTextField(
                             value = reviewerName,
                             onValueChange = { reviewerName = it },
-                            placeholder = { Text("اسمك الكريم...", fontSize = 12.sp) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                            placeholder = { Text("اسمك الكريم") },
+                            modifier = Modifier.fillMaxWidth().testTag("rev_name_input"),
+                            shape = RoundedCornerShape(8.dp)
                         )
 
-                        // Rating selectors row
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("التقييم بالنجوم: ", fontSize = 11.sp)
-                            repeat(5) { i ->
-                                val active = ratingValue > i
-                                IconButton(onClick = { ratingValue = i + 1 }, modifier = Modifier.size(24.dp)) {
-                                    Icon(
-                                        imageVector = if (active) Icons.Default.Star else Icons.Default.StarBorder,
-                                        contentDescription = null,
-                                        tint = if (active) Color(0xFFF59E0B) else Color.Gray,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Comment text block
-                        TextField(
+                        OutlinedTextField(
                             value = commentText,
                             onValueChange = { commentText = it },
-                            placeholder = { Text("اكتب مراجعتك أو تفاصيل التجربة بكل أمانة...", fontSize = 12.sp) },
+                            placeholder = { Text("تكلم عن جودة العمل، السعر، والالتزام بالوقت...") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(60.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .testTag("rev_text_input"),
+                            shape = RoundedCornerShape(8.dp)
                         )
 
                         Button(
                             onClick = {
-                                if (reviewerName.trim().isNotEmpty() && commentText.trim().isNotEmpty()) {
-                                    val c = Comment(
-                                        id = "C_${System.currentTimeMillis()}",
-                                        author = reviewerName.trim(),
-                                        text = commentText.trim(),
-                                        rating = ratingValue,
-                                        timestamp = System.currentTimeMillis()
+                                if (reviewerName.isEmpty() || commentText.isEmpty()) {
+                                    Toast.makeText(context, "الرجاء كتابة الاسم والرأي!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "شكراً لإضافة رأيك ومساعدتنا لتقييم النشاط!", Toast.LENGTH_LONG).show()
+                                    // Trigger incremental review metadata simulation
+                                    val newReviewsCount = provider.reviewsCount + 1
+                                    val currentRating = provider.rating
+                                    // Add a slight rating bump simulation
+                                    val newRating = minOf(5.0, ((currentRating * provider.reviewsCount + 5.0) / newReviewsCount))
+                                    FirebaseSimulator.updateServiceProvider(
+                                        context,
+                                        provider.copy(reviewsCount = newReviewsCount, rating = newRating)
                                     )
-                                    FirebaseSimulator.addComment(context, providerId, c)
                                     reviewerName = ""
                                     commentText = ""
-                                    Toast.makeText(context, "نشكرك على مشاركة تجربتك!", Toast.LENGTH_SHORT).show()
                                 }
                             },
+                            shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
                                 .align(Alignment.End)
-                                .testTag("btn_submit_comment"),
-                            shape = RoundedCornerShape(8.dp)
+                                .testTag("btn_submit_review")
                         ) {
-                            Text("أرسل التقييم", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("نشر التقييم")
                         }
                     }
                 }
             }
+        }
+    }
 
-            item {
-                Spacer(modifier = Modifier.height(48.dp))
+    // Submit Report Dialog
+    if (showReportDialog) {
+        Dialog(onDismissRequest = { showReportDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("الإبلاغ عن بيانات خاطئة ⚠️", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+
+                    OutlinedTextField(
+                        value = reportReason,
+                        onValueChange = { reportReason = it },
+                        placeholder = { Text("سبب الإبلاغ (مثال: هاتف خاطئ، السعر مرتفع)") },
+                        modifier = Modifier.fillMaxWidth().testTag("report_reason_input"),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = reportDetails,
+                        onValueChange = { reportDetails = it },
+                        placeholder = { Text("تفاصيل البلاغ الإضافية ومقترحاتك للتعديل") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(80.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (reportReason.isNotEmpty()) {
+                                    val report = Report(
+                                        id = "rep_${System.currentTimeMillis()}",
+                                        providerId = providerId,
+                                        providerName = provider.name,
+                                        reason = reportReason,
+                                        details = reportDetails
+                                    )
+                                    FirebaseSimulator.addReport(context, report)
+                                    showReportDialog = false
+                                    reportReason = ""
+                                    reportDetails = ""
+                                    Toast.makeText(context, "نشكر مساهمتك! تم جدولة البلاغ وبدء مراجعته.", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f).testTag("btn_report_submit")
+                        ) {
+                            Text("إرسال البلاغ")
+                        }
+                        OutlinedButton(
+                            onClick = { showReportDialog = false },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("إلغاء")
+                        }
+                    }
+                }
             }
         }
+    }
 
-        // Incident issue warning box popup dialog
-        if (showReportDialog) {
-            AlertDialog(
-                onDismissRequest = { showReportDialog = false },
-                title = { Text("الإبلاغ عن هذا الفني ⚠️", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-                text = {
-                    Column {
-                        Text("يرجى قراءة معايير النزاهة وكتابة سبب محدد للبلاغ ليتخذ الآدمن الإجراء المناسب (سيصل تنبيه FCM إداري فوري):", fontSize = 12.sp, lineHeight = 18.sp)
-                        Spacer(modifier = Modifier.height(10.dp))
-                        TextField(
-                            value = reportReason,
-                            onValueChange = { reportReason = it },
-                            placeholder = { Text("اكتب سبب الإبلاغ بالتفصيل...", fontSize = 12.sp) },
-                            modifier = Modifier.fillMaxWidth().height(80.dp).clip(RoundedCornerShape(8.dp))
+    // Full Provider Edit (صلاحيات الأدمن الكاملة للمزامنة)
+    if (showEditProviderDialog) {
+        Dialog(onDismissRequest = { showEditProviderDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("تعديل كامل البيانات (رتبة مشرف) 🛡️", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("اسم النشاط ومزود الخدمة") },
+                        modifier = Modifier.fillMaxWidth().testTag("edit_provider_name"),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = editCategory,
+                        onValueChange = { editCategory = it },
+                        label = { Text("القسم المعتمد") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = editPhone,
+                        onValueChange = { editPhone = it },
+                        label = { Text("رقم الاتصال") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = editWhatsapp,
+                        onValueChange = { editWhatsapp = it },
+                        label = { Text("رقم الواتساب") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = editDesc,
+                        onValueChange = { editDesc = it },
+                        label = { Text("الوصف والخدمات المقدمة") },
+                        modifier = Modifier.fillMaxWidth().height(80.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = editImage,
+                        onValueChange = { editImage = it },
+                        label = { Text("رابط الصورة الفنية") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = editAddress,
+                        onValueChange = { editAddress = it },
+                        label = { Text("العنوان بالتحديد") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = editRating,
+                        onValueChange = { editRating = it },
+                        label = { Text("التقييم الأصلي للنشاط (0.0 - 5.0)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = editViews,
+                        onValueChange = { editViews = it },
+                        label = { Text("عدد المشاهدات (نقطة الشعبية)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("توثيق مزود الخدمة (علامة الزرقاء):", fontSize = 12.sp)
+                        Switch(
+                            checked = editVerified,
+                            onCheckedChange = { editVerified = it }
                         )
                     }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            if (reportReason.trim().isNotEmpty()) {
-                                FirebaseSimulator.submitReport(
-                                    context, 
-                                    providerId, 
-                                    reportReason.trim(), 
-                                    if (isGuest) "زائر مجهول" else FirebaseSimulator.currentUserName
-                                )
-                                showReportDialog = false
-                                reportReason = ""
-                                Toast.makeText(context, "تم رفع التقرير وجدولة الإشعار الفوري للآدمن عبر FCM بنجاح.", Toast.LENGTH_LONG).show()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("إرسال التنبيه الفوري")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showReportDialog = false }) {
-                        Text("إلغاء")
-                    }
-                }
-            )
-        }
 
-        // Guest restriction popup
-        if (showGuestDialog) {
-            AlertDialog(
-                onDismissRequest = { showGuestDialog = false },
-                title = { Text("ميزة مقيدة للزوار ⚓", fontWeight = FontWeight.Bold) },
-                text = { Text("يقتصر التواصل بالرسائل والدردشات وتأكيد حجوزات الأوقات الفنية على المشتركين المسجلين فقط.", fontSize = 12.sp) },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showGuestDialog = false
-                            onLoginClick()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("الذهاب للتسجيل")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showGuestDialog = false }) {
-                        Text("تخطي")
+                        Button(
+                            onClick = {
+                                if (editName.isEmpty() || editPhone.isEmpty()) {
+                                    Toast.makeText(context, "الحقول الأساسية الاسم والهاتف مطلوبة!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val r = editRating.toDoubleOrNull() ?: provider.rating
+                                    val v = editViews.toIntOrNull() ?: provider.views
+                                    val updatedPro = provider.copy(
+                                        name = editName,
+                                        category = editCategory,
+                                        phone = editPhone,
+                                        whatsapp = editWhatsapp,
+                                        description = editDesc,
+                                        imageUrl = editImage,
+                                        rating = r,
+                                        views = v,
+                                        isVerified = editVerified,
+                                        address = editAddress
+                                    )
+                                    FirebaseSimulator.updateServiceProvider(context, updatedPro)
+                                    showEditProviderDialog = false
+                                    Toast.makeText(context, "تم تحديث ومزامنة بيانات المزود بنجاح! 📣", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f).testTag("btn_edit_provider_submit")
+                        ) {
+                            Text("تزامن البيانات الكلي")
+                        }
+                        OutlinedButton(
+                            onClick = { showEditProviderDialog = false },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("إلغاء")
+                        }
                     }
                 }
-            )
+            }
         }
     }
 }
