@@ -26,12 +26,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Initialize the local-and-cloud database
+        // Initialize local cache & fetch current configuration state
         FirebaseSimulator.init(applicationContext)
         
         enableEdgeToEdge()
         setContent {
-            DalilyTheme {
+            val dbState by FirebaseSimulator.dbState.collectAsState()
+            val activeTheme = dbState.config.themeColors
+
+            DalilyTheme(themeName = activeTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -47,7 +50,7 @@ class MainActivity : ComponentActivity() {
 fun MainAppNavigation() {
     val navController = rememberNavController()
     
-    // Shared state for logged in role
+    // Controlled role state across screen scopes
     var currentRole by remember { mutableStateOf(UserRole.USER) }
     var activeAdminName by remember { mutableStateOf<String?>(null) }
 
@@ -60,9 +63,9 @@ fun MainAppNavigation() {
                     currentRole = UserRole.USER
                     activeAdminName = null
                 },
-                onRoleChanged = { role, adminName ->
+                onRoleChanged = { role, name ->
                     currentRole = role
-                    activeAdminName = adminName
+                    activeAdminName = name
                 }
             )
         }
@@ -75,7 +78,8 @@ fun MainAppNavigation() {
             DetailScreen(
                 navController = navController,
                 providerId = providerId,
-                currentRole = currentRole
+                currentRole = currentRole,
+                activeAdminName = activeAdminName
             )
         }
         
@@ -84,7 +88,7 @@ fun MainAppNavigation() {
         }
         
         composable("chat_list") {
-            ChatListScreen(navController = navController)
+            ChatListScreen(navController = navController, currentRole = currentRole)
         }
         
         composable("admin_dashboard") {

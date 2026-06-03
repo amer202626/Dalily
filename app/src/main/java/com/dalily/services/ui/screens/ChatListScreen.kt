@@ -25,10 +25,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.dalily.services.UserRole
 import com.dalily.services.data.FirebaseSimulator
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatListScreen(navController: NavController) {
+fun ChatListScreen(
+    navController: NavController,
+    currentRole: UserRole
+) {
     val dbState by FirebaseSimulator.dbState.collectAsState()
 
     // Extract unique providerIds from active messages
@@ -39,8 +44,19 @@ fun ChatListScreen(navController: NavController) {
 
     Scaffold(
         topBar = {
-            SmallTopAppBar(
-                title = { Text("محادثاتي واستفساراتي المباشرة", fontWeight = FontWeight.Bold) },
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = if (currentRole != UserRole.USER) "سجلات مراقبة محادثات الدليل 🛡️" else "محادثاتي واستفساراتي المباشرة",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        if (currentRole != UserRole.USER) {
+                            Text("صلاحية مراقبة المشرفين الفورية نشطة", fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "رجوع")
@@ -54,16 +70,21 @@ fun ChatListScreen(navController: NavController) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .background(MaterialTheme.colorScheme.background),
+                    .background(Color(0xFF0B0F19)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.MailOutline, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.Gray.copy(alpha = 0.5f))
-                    Text("لا توجد محادثات نشطة!", fontWeight = FontWeight.Bold, color = Color.Gray)
-                    Text("المحادثات المباشرة مع الفنيين والعيادات تظهر هنا", fontSize = 11.sp, color = Color.Gray)
+                    Icon(
+                        imageVector = Icons.Default.MailOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = Color.Gray.copy(alpha = 0.5f)
+                    )
+                    Text("لا توجد محادثات أو استفسارات نشطة!", fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Text("المحادثات الفورية مع مزودي الخدمة تظهر هنا وتخزن محلياً مجاناً", fontSize = 11.sp, color = Color.Gray)
                 }
             }
         } else {
@@ -71,8 +92,8 @@ fun ChatListScreen(navController: NavController) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .background(MaterialTheme.colorScheme.background),
-                contentPadding = PaddingValues(16.dp),
+                    .background(Color(0xFF0B0F19)),
+                contentPadding = PaddingValues(15.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(uniqueProviders) { provider ->
@@ -80,12 +101,16 @@ fun ChatListScreen(navController: NavController) {
                         .filter { it.providerId == provider.id }
                         .lastOrNull()?.text ?: ""
 
+                    val unreadCount = dbState.chats
+                        .count { it.providerId == provider.id && it.isFromUser }
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { navController.navigate("detail/${provider.id}") }
                             .testTag("chat_thread_${provider.id}"),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Row(
                             modifier = Modifier
@@ -99,32 +124,52 @@ fun ChatListScreen(navController: NavController) {
                                 modifier = Modifier.size(48.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.MailOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(
+                                        imageVector = Icons.Default.MailOutline,
+                                        contentDescription = null,
+                                        tint = Color.Black
+                                    )
                                 }
                             }
 
                             Spacer(modifier = Modifier.width(12.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = provider.name,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = provider.name,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (unreadCount > 0) {
+                                        Badge(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = Color.Black
+                                        ) {
+                                            Text("$unreadCount", fontSize = 9.sp)
+                                        }
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = lastMessage,
                                     fontSize = 11.sp,
-                                    color = Color.Gray,
+                                    color = Color.LightGray,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
 
+                            Spacer(modifier = Modifier.width(8.dp))
+
                             Icon(
-                                Icons.Default.Send,
+                                imageVector = Icons.Default.Send,
                                 contentDescription = "فتح المحادثة",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
