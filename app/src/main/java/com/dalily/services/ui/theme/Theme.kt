@@ -1,49 +1,76 @@
 package com.dalily.services.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF00B0FF), // Dynamic Electric Blue
-    secondary = Color(0xFFFFD700), // Amber Gold
-    tertiary = Color(0xFF00E676), // Rich Emerald Green
-    background = Color(0xFF121212), // Deep Matte Dark
-    surface = Color(0xFF1E1E1E), // Soft Card Charcoal
-    onPrimary = Color.Black,
-    onSecondary = Color.Black,
-    onBackground = Color(0xFFE2E8F0),
-    onSurface = Color(0xFFF1F5F9),
-    primaryContainer = Color(0xFF003B5C),
-    surfaceVariant = Color(0xFF2B2D31)
-)
+fun parseColor(hex: String, defaultColor: Color): Color {
+    return try {
+        val sanitized = if (hex.startsWith("#")) hex else "#$hex"
+        Color(android.graphics.Color.parseColor(sanitized))
+    } catch (e: Exception) {
+        defaultColor
+    }
+}
 
-private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF0288D1), // Ocean Sky Blue
-    secondary = Color(0xFFFBC02D), // Yemeni Gold Yellow
-    tertiary = Color(0xFF2E7D32), // Forest Green
-    background = Color(0xFFF8FAFC), // Pure Soft Slate
-    surface = Color.White, // Seamless White
-    onPrimary = Color.White,
-    onSecondary = Color.Black,
-    onBackground = Color(0xFF0F172A), // Slate 900
-    onSurface = Color(0xFF1E293B), // Slate 800
-    primaryContainer = Color(0xFFE0F2FE),
-    surfaceVariant = Color(0xFFF1F5F9)
-)
+fun getDynamicThemeColors(
+    themeName: String,
+    primaryHex: String,
+    secondaryHex: String
+): ColorScheme {
+    val primaryColor = parseColor(primaryHex, Color(0xFF708090))
+    val secondaryColor = parseColor(secondaryHex, Color(0xFFA9A9A9))
 
-@Composable
-fun DalilyTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
-) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content
-    )
+    return when (themeName) {
+        "كوزميك سيلفر" -> darkColorScheme(
+            primary = Color(0xFFC0C0C0), // Silver
+            onPrimary = Color(0xFF1A1A24),
+            primaryContainer = Color(0xFF4A5560), // Slate gray container
+            onPrimaryContainer = Color.White,
+            secondary = Color(0xFFE0E0E0),
+            onSecondary = Color(0xFF1A1A24),
+            background = Color(0xFF12121B), // Beautiful slate eye-safe dark
+            onBackground = Color.White,
+            surface = Color(0xFF1A1A26),
+            onSurface = Color.White
+        )
+        "الذهبي الفاخر" -> darkColorScheme(
+            primary = Color(0xFFFFD700), // Luxury Gold
+            onPrimary = Color(0xFF121212),
+            primaryContainer = Color(0xFF8B7500),
+            onPrimaryContainer = Color.White,
+            secondary = Color(0xFFDAA520),
+            onSecondary = Color(0xFF121212),
+            background = Color(0xFF0F0F0F), // Charcoal rich dark
+            onBackground = Color(0xFFFFFEFA),
+            surface = Color(0xFF181818),
+            onSurface = Color(0xFFFFFEFA)
+        )
+        "الزمردي الراقي" -> darkColorScheme(
+            primary = Color(0xFF50C878), // Royal Emerald
+            onPrimary = Color(0xFF07170E),
+            primaryContainer = Color(0xFF1B4D2F),
+            onPrimaryContainer = Color.White,
+            secondary = Color(0xFF00A86B),
+            onSecondary = Color(0xFF07170E),
+            background = Color(0xFF05120B), // Deep royal forest green
+            onBackground = Color(0xFFF0FDF4),
+            surface = Color(0xFF0B1E13),
+            onSurface = Color(0xFFF0FDF4)
+        )
+        else -> { // "مخصص" or any custom primary/secondary defined by admin
+            darkColorScheme(
+                primary = primaryColor,
+                onPrimary = Color.Black,
+                primaryContainer = primaryColor.copy(alpha = 0.3f),
+                onPrimaryContainer = Color.White,
+                secondary = secondaryColor,
+                onSecondary = Color.Black,
+                background = Color(0xFF101015),
+                onBackground = Color.White,
+                surface = Color(0xFF181822),
+                onSurface = Color.White
+            )
+        }
+    }
 }
